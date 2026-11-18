@@ -65,8 +65,8 @@ no fim, tem uma lista de *cadastradas* + uma fila curta de *pendências com moti
 - **Quando roda:** duas camadas, para não pesar a máquina nem disputar a sessão:
   1. **Leitura das pastas — contínua e leve**: o watcher lê PDFs novos assim que aparecem e já monta
      a fila e as pendências. O consultor resolve pendências ao longo da manhã, em segundos.
-  2. **Cadastro no SGCOR — em lote**: botão "Executar agora" **ou** horário agendado (ex.: 12:00 / fim do expediente).
-     No almoço o lote já está todo "Pronto", sem nenhuma pergunta parando o robô.
+  2. **Cadastro no SGCOR — em lote, só com clique (Q33)**: o consultor marca as lotéricas e clica "Executar";
+     o app mostra um resumo do que vai cadastrar e pede confirmação. **Sem agendamento automático.**
 
 ### 3.2 Sem "refresh das páginas"
 Em vez de ficar recarregando páginas/pastas, o app:
@@ -128,9 +128,9 @@ Classificação dos arquivos pelo conteúdo:
 
 ### 6.1 Parcelas (a parte mais delicada)
 **Regra de ouro ✅: vale o que o CLIENTE disse no acordo. A marcação `(X)` da proposta é ignorada.**
-1. Ler o acordo com coordenadas; mensagens da **coluna esquerda** = cliente.
-2. Procurar padrões: `N x|vezes|parcelas`, `A + B`, `à vista`, `boleto|cartão|pix|débito`.
-3. Usar a **última** escolha explícita do cliente. Quantidade de parcelas = soma: `1+5` → 6; `1+9` → 10; `0+10` → 10; `à vista` → 1.
+1. Ler o acordo com coordenadas; mensagens da **coluna esquerda** = cliente, coluna do cabeçalho "Atendente" = consultor.
+2. Procurar padrões: `N x|vezes|parcelas`, `A + B`, `A e mais B`, `à vista`, `N ou M` (ambíguo), `boleto|cartão|cartão porto|pix|débito`.
+3. Usar a **última** condição combinada (Q31): fala explícita do cliente, ou oferta do consultor com parcelas + forma aceita pelo cliente. Quantidade de parcelas = soma: `1+5` → 6; `1+9` → 10; `0+10` → 10; `à vista` → 1.
 4. Com ou sem entrada não importa no cadastro: `1+9`, `0+10` e `10x` viram todos **10** (Q13).
 5. Validar: a opção existe na tabela de pagamento da proposta? Se não → pendência.
 6. Nada encontrado / ambíguo → **pendência "informar parcelas"** (o consultor digita no app e a lotérica volta para a fila).
@@ -242,7 +242,8 @@ Nenhuma no nível de planejamento. F0 mapeada (ver `docs/f0-mapa-sgcor.md`). Ain
 |---|---|---|
 | Q1 | Python (3.15.2 instalado) + Playwright + pdfplumber + PySide6 → `.exe` por máquina | 18/11/2026 |
 | Q2 | Sem usuário de robô; cada consultor usa o próprio login num **navegador dedicado ao SGCOR** | 18/11/2026 |
-| Q2b | Leitura das pastas contínua; cadastro no SGCOR **em lote** (almoço / fim do dia / "Executar agora") | 18/11/2026 |
+| Q2b | Leitura das pastas contínua; cadastro no SGCOR **em lote** (substituída em parte pela Q33: sem agendamento) | 18/11/2026 |
+| Q33 | Nada no SGCOR sem clique: cadastro só quando o consultor clica "Executar", com resumo e confirmação antes; **sem horário agendado** | 18/11/2026 |
 | Q3 | Chave de busca = **CNPJ** da proposta; apólice anterior escolhe a linha | 18/11/2026 |
 | Q4 | Cotação nº (Tokio) / Nº do orçamento (Porto) → campo "Proposta" | 18/11/2026 |
 | Q5 | Tabela de bônus da imagem 15 (R$ 26,00 era campanha antiga) | 18/11/2026 |
@@ -276,3 +277,8 @@ Nenhuma no nível de planejamento. F0 mapeada (ver `docs/f0-mapa-sgcor.md`). Ain
 | F0 | "Concluir" não grava nada; a renovação passa a existir no **Avançar** da tela de informações. "Pela metade" (Q12) = existe `<N>` mas falta cobertura/repasse/anexo | 18/11/2026 |
 | F0 | Anexo enviado direto pelo campo de arquivo (sem janela do Windows); limite 10 MB; Descrição já anexada não é reenviada | 18/11/2026 |
 | F0 | Tela de Parcelas só é **conferida** (nº, 1º vencimento, soma, comissão, repasse); robô nunca clica Apagar/Cancelar/Recadastrar/Excluir | 18/11/2026 |
+| Q31 | Vale a última condição combinada: fala explícita do cliente **ou** oferta explícita do consultor com parcelas **e** forma ("Podemos fechar em 1+5x no boleto?") aceita pelo cliente depois; sem isso → pendência "perguntar ao consultor" | 18/11/2026 |
+| Q32 | Forma de pagamento não citada por ninguém → **boleto**, com aviso | 18/11/2026 |
+| F1 | Porto: à vista e cartão Porto têm desconto e IOF próprio → prêmio total/IOF/líquido saem da **linha da forma escolhida**, não do demonstrativo geral | 18/11/2026 |
+| F1 | Acordo pode ser **e-mail impresso** (Gmail) em vez de Histórico de Atendimento; numa pasta com 1 proposta, o outro PDF é tratado como acordo | 18/11/2026 |
+| F1 | Acordo com CNPJ diferente da proposta → pendência (caso real: acordo de outra lotérica na pasta errada) | 18/11/2026 |

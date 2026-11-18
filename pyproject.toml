@@ -1,0 +1,13 @@
+[project]
+name = "sgcor-renov"
+version = "0.1.0"
+description = "Automação de renovações lotéricas no SGCOR (Grupo Protege)"
+requires-python = ">=3.12"
+dependencies = ["pdfplumber>=0.11"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -8,6 +8,8 @@ screenshots/
 .env
 # Páginas salvas do SGCOR (contêm dados reais de clientes)
 html-sgcor/
+# Relatórios gerados (CSV com dados de clientes)
+saida/
 
 # Python
 __pycache__/

@@ -1,0 +1,42 @@
+# Configuração padrão da automação de renovações.
+# Valores que mudam a cada campanha/ciclo ficam aqui, não no código.
+
+[datas]
+# Vencimento da 1ª parcela (Porto e Tokio)
+primeira_parcela = "10/01/2027"
+
+[apolice]
+# Nº provisório lançado em "Apólice" e "Apólice (Baixa comissão)"; o consultor troca na emissão (Q27)
+provisoria = "123456"
+
+# Comissão (%) → bônus do consultor (Valor Fixo do repasse), campanha atual (Q5)
+[[bonus]]
+ate = 16
+valor = "18.00"
+
+[[bonus]]
+de = 17
+ate = 19
+valor = "20.00"
+
+[[bonus]]
+de = 20
+ate = 23
+valor = "30.00"
+
+[[bonus]]
+de = 24
+valor = "40.00"
+
+# Forma de pagamento (como o cliente falou) → value do select "Forma de Cobrança" no SGCOR (Q28)
+[cobranca]
+boleto = 1
+cartao = 4
+cartao_porto = 25
+debito = 12
+pix = 36
+
+[sgcor]
+companhia_porto = 12
+companhia_tokio = 13
+ramo_loterico = 9
