@@ -23,6 +23,11 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
     for prob in p.problemas:
         caso.pendencias.append(f"Proposta: {prob}")
 
+    # vigência vem da configuração (Q37); Porto com início diferente → pendência (Q44)
+    if p.vigencia_inicio and p.vigencia_inicio != cfg.vigencia_inicio:
+        caso.pendencias.append(f"Vigência da proposta começa em {p.vigencia_inicio}, "
+                               f"mas a configuração usa {cfg.vigencia_inicio}")
+
     # parcelas
     if e.ambigua:
         caso.pendencias.append(f"Parcelas ambíguas no acordo: “{e.trecho_parcelas}” — perguntar ao consultor")

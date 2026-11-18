@@ -23,6 +23,14 @@ class ModeloCasos(QAbstractTableModel):
         super().__init__()
         self.casos: list[Caso] = []
         self.marcados: set[Path] = set()
+        self.situacao: dict[Path, str] = {}   # o que o robô fez/está fazendo nesta lotérica (sessão atual)
+
+    def definir_situacao(self, pasta: Path, texto: str) -> None:
+        self.situacao[pasta] = texto
+        for r, c in enumerate(self.casos):
+            if c.pasta == pasta:
+                self.dataChanged.emit(self.index(r, 1), self.index(r, 1))
+                return
 
     def definir(self, casos: list[Caso]) -> None:
         self.beginResetModel()
@@ -64,8 +72,11 @@ class ModeloCasos(QAbstractTableModel):
             f = QFont()
             f.setBold(True)
             return f
-        if role == Qt.ToolTipRole and col == 1 and c.pendencias:
-            return "\n".join(c.pendencias)
+        if role == Qt.ToolTipRole and col == 1:
+            dicas = list(c.pendencias)
+            if c.pasta in self.situacao:
+                dicas.append("Robô: " + self.situacao[c.pasta])
+            return "\n".join(dicas) or None
         if role == Qt.TextAlignmentRole and col in (6, 8):
             return int(Qt.AlignRight | Qt.AlignVCenter)
         if role != Qt.DisplayRole:
@@ -73,7 +84,9 @@ class ModeloCasos(QAbstractTableModel):
         p = c.proposta
         match col:
             case 1:
-                return c.status if c.status == "Pronto" else f"Pendente ({len(c.pendencias)})"
+                base = c.status if c.status == "Pronto" else f"Pendente ({len(c.pendencias)})"
+                robo = self.situacao.get(c.pasta)
+                return f"{base} · {robo[:40]}" if robo else base
             case 2:
                 return c.seguradora.title()
             case 3:

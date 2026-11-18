@@ -8,13 +8,13 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QMetaObject, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMessageBox, QProgressBar, QPushButton, QSpinBox, QSplitter, QTableView, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTableView,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..config import carregar
@@ -23,6 +23,7 @@ from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
 from .leitor import Leitor
 from .tabela import FORMAS, FiltroCasos, ModeloCasos
+from .trabalhador import Trabalhador
 
 ORG, APP = "GrupoProtege", "SGCOR-Renovacoes"
 
@@ -34,6 +35,8 @@ def abrir_no_windows(caminho: Path) -> None:
 
 class Janela(QMainWindow):
     pedir_leitura = Signal(object, object)   # raízes, ajustes
+    pedir_verificacao = Signal()
+    pedir_execucao = Signal(object, str)     # casos, produtor
 
     def __init__(self):
         super().__init__()
@@ -44,9 +47,12 @@ class Janela(QMainWindow):
         self.settings = QSettings()   # usa ORG/APP do QApplication e o formato padrão (registro; arquivo nos testes)
         self.lendo = False
         self.reler_depois = False
+        self.conectado = False
+        self.executando = False
 
         self._montar()
         self._iniciar_leitor()
+        self._iniciar_robo()
         self._iniciar_observador()
         QTimer.singleShot(0, self.ler)
 
@@ -62,14 +68,21 @@ class Janela(QMainWindow):
         self.ed_porto = self._campo_pasta(topo, 0, "Pasta PORTO", "porto", docs / "FECHADOS PORTO")
         self.ed_tokio = self._campo_pasta(topo, 1, "Pasta TOKIO", "tokio", docs / "FECHADOS TOKIO")
         topo.addWidget(QLabel("Consultor / Produtor"), 0, 3)
-        self.ed_consultor = QLineEdit(self.settings.value("consultor", ""))
-        self.ed_consultor.setPlaceholderText("nome do produtor no SGCOR")
-        self.ed_consultor.editingFinished.connect(lambda: self.settings.setValue("consultor", self.ed_consultor.text()))
+        self.ed_consultor = QComboBox()        # lista lida do SGCOR (Q36)
+        self.ed_consultor.setMinimumWidth(260)
+        salvo = self.settings.value("consultor", "")
+        if salvo:
+            self.ed_consultor.addItem(salvo)
+        self.ed_consultor.setPlaceholderText("clique em Verificar conexão para carregar")
+        self.ed_consultor.currentTextChanged.connect(lambda t: t and self.settings.setValue("consultor", t))
         topo.addWidget(self.ed_consultor, 0, 4)
         self.bt_sgcor = QPushButton("Verificar conexão ao SGCOR")
-        self.bt_sgcor.setEnabled(False)
-        self.bt_sgcor.setToolTip("Disponível na F2 (robô do SGCOR)")
+        self.bt_sgcor.setToolTip("Abre o navegador do robô. Se pedir login, entre com o seu usuário nele e clique de novo.")
+        self.bt_sgcor.clicked.connect(self._verificar)
         topo.addWidget(self.bt_sgcor, 1, 4)
+        self.lb_conexao = QLabel("● SGCOR não verificado")
+        self.lb_conexao.setStyleSheet("color: #888;")
+        topo.addWidget(self.lb_conexao, 1, 3)
         topo.setColumnStretch(1, 1)
         raiz.addLayout(topo)
 
@@ -135,11 +148,44 @@ class Janela(QMainWindow):
         self.lb_contagem.setMinimumWidth(140)
         self.lb_contagem.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         rodape.addWidget(self.lb_contagem)
+        self.bt_pausar = QPushButton("Pausar")
+        self.bt_pausar.setToolTip("Termina a lotérica em andamento e para (Q47)")
+        self.bt_pausar.setEnabled(False)
+        self.bt_pausar.clicked.connect(self._pausar)
+        rodape.addWidget(self.bt_pausar)
         self.bt_executar = QPushButton("Executar selecionadas")
         self.bt_executar.setMinimumHeight(34)
         self.bt_executar.clicked.connect(self.executar)
         rodape.addWidget(self.bt_executar)
         raiz.addLayout(rodape)
+
+        # barra de conferência (aparece quando o robô preencheu a 1ª tela e está esperando)
+        self.barra_conf = QFrame()
+        self.barra_conf.setStyleSheet("QFrame { background: #3a2f00; border: 1px solid #d4a300; border-radius: 4px; }"
+                                      "QLabel { color: #ffd54a; border: none; }")
+        bl = QHBoxLayout(self.barra_conf)
+        self.lb_conf = QLabel()
+        self.lb_conf.setWordWrap(True)
+        bl.addWidget(self.lb_conf, 1)
+        self.bt_continuar = QPushButton("Continuar")
+        self.bt_continuar.setEnabled(False)
+        self.bt_continuar.setToolTip("Avançar e fazer coberturas, repasse e anexos — chega na F3")
+        self.bt_pular = QPushButton("Pular lotérica (não grava)")
+        self.bt_parar = QPushButton("Parar lote")
+        self.bt_retomar = QPushButton("Retomar")
+        self.bt_pular.clicked.connect(lambda: self._decidir("pular"))
+        self.bt_parar.clicked.connect(lambda: self._decidir("parar"))
+        self.bt_retomar.clicked.connect(lambda: self._decidir("retomar"))
+        for b in (self.bt_continuar, self.bt_pular, self.bt_retomar, self.bt_parar):
+            bl.addWidget(b)
+        self.barra_conf.setVisible(False)
+        raiz.addWidget(self.barra_conf)
+
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumHeight(110)
+        self.log.setPlaceholderText("Log do robô")
+        raiz.addWidget(self.log)
 
         self.setCentralWidget(central)
         self.progresso = QProgressBar()
@@ -356,7 +402,7 @@ class Janela(QMainWindow):
             "CNPJ": formatar_cnpj(p.cnpj) if p else "",
             "Apólice anterior": (p.apolice_anterior or "") if p else "",
             "Proposta nº": (p.numero or "") if p else "",
-            "Vigência": f"{p.vigencia_inicio} a {p.vigencia_fim}" if p and p.vigencia_inicio else "vem do SGCOR",
+            "Vigência": f"{self.cfg.vigencia_inicio} a {self.cfg.vigencia_fim} (configuração)",
             "Parcelas / forma": f"{c.parcelas or '?'}x · {FORMAS.get(c.forma or '', c.forma or '?')}",
             "Cobrança SGCOR": str(c.cobranca_id or ""),
             "Prêmio líquido": formatar_dinheiro(c.premio_liquido),
@@ -429,26 +475,134 @@ class Janela(QMainWindow):
         self.bt_filtros["Pendente"].setText(f"Pendentes ({len(casos) - prontos})")
         n = len(self.modelo.selecionados())
         self.lb_contagem.setText(f"{n} selecionada(s)")
-        self.bt_executar.setEnabled(n > 0)
+        self.bt_executar.setEnabled(n > 0 and not self.executando)
+
+    # ------------------------------------------------------------------ robô
+
+    def _iniciar_robo(self) -> None:
+        self.thread_robo = QThread(self)
+        self.trab = Trabalhador(self.cfg)
+        self.trab.moveToThread(self.thread_robo)
+        self.pedir_verificacao.connect(self.trab.verificar)
+        self.pedir_execucao.connect(self.trab.executar)
+        self.trab.linha_log.connect(self.log.appendPlainText)
+        self.trab.conexao.connect(self._conexao)
+        self.trab.situacao.connect(self._situacao)
+        self.trab.aguardando.connect(self._aguardando)
+        self.trab.login_necessario.connect(self._login_necessario)
+        self.trab.pausado.connect(self._pausado)
+        self.trab.fim_lote.connect(self._fim_lote)
+        self.thread_robo.start()
+
+    def _verificar(self) -> None:
+        self.bt_sgcor.setEnabled(False)
+        self.lb_conexao.setText("● verificando…")
+        self.lb_conexao.setStyleSheet("color: #888;")
+        self.pedir_verificacao.emit()
+
+    def _conexao(self, ok: bool, produtores: list) -> None:
+        self.bt_sgcor.setEnabled(not self.executando)
+        self.conectado = ok
+        if ok:
+            self.lb_conexao.setText("● SGCOR conectado")
+            self.lb_conexao.setStyleSheet("color: #2ea043; font-weight: 600;")
+            atual = self.ed_consultor.currentText()
+            self.ed_consultor.blockSignals(True)
+            self.ed_consultor.clear()
+            self.ed_consultor.addItems([nome for _, nome in produtores])
+            self.ed_consultor.blockSignals(False)
+            i = self.ed_consultor.findText(atual)
+            self.ed_consultor.setCurrentIndex(i if i >= 0 else -1)
+        else:
+            self.lb_conexao.setText("● sem login — entre na janela do robô e verifique de novo")
+            self.lb_conexao.setStyleSheet("color: #f0533f; font-weight: 600;")
 
     def executar(self) -> None:
         sel = self.modelo.selecionados()
-        if not sel:
+        if not sel or self.executando:
             return
-        if not self.ed_consultor.text().strip():
-            QMessageBox.information(self, "Consultor", "Informe o consultor/produtor antes de executar.")
+        if not self.conectado:
+            QMessageBox.information(self, "SGCOR", "Clique em “Verificar conexão ao SGCOR” e faça o login na janela "
+                                                   "do robô antes de executar.")
             return
-        dlg = Confirmacao(self, sel, self.cb_modo.currentText(), self.ed_consultor.text().strip())
+        produtor = self.ed_consultor.currentText().strip()
+        if not produtor or self.ed_consultor.findText(produtor) < 0:
+            QMessageBox.information(self, "Consultor", "Escolha o seu nome na lista de produtores do SGCOR.")
+            return
+        dlg = Confirmacao(self, sel, self.cb_modo.currentText(), produtor)
         if dlg.exec() != QDialog.Accepted:
             self.statusBar().showMessage("Execução cancelada. Nada foi enviado ao SGCOR.", 8000)
             return
-        QMessageBox.information(
-            self, "Robô do SGCOR",
-            "Confirmado.\n\nO robô que preenche o SGCOR entra na F2 — nesta versão nada é enviado ao SGCOR.")
+        self.executando = True
+        self.bt_executar.setEnabled(False)
+        self.bt_sgcor.setEnabled(False)
+        self.bt_pausar.setEnabled(True)
+        self.pedir_execucao.emit(sel, produtor)
+
+    def _decidir(self, acao: str) -> None:
+        self.barra_conf.setVisible(False)
+        self.trab.decidir(acao)
+
+    def _pausar(self) -> None:
+        self.trab.pausa.set()
+        self.bt_pausar.setEnabled(False)
+        self.statusBar().showMessage("Pausa pedida: o robô para ao terminar a lotérica atual.", 8000)
+
+    def _situacao(self, pasta: Path, texto: str) -> None:
+        self.modelo.definir_situacao(pasta, texto)
+        if self._atual and self._atual.pasta == pasta:
+            self.lb_titulo.setText(f"{self._atual.nome}  ·  {texto}")
+
+    def _aguardando(self, caso: Caso, campos: list) -> None:
+        self._selecionar(caso.pasta)
+        self.lb_conf.setText(f"<b>{caso.nome}</b>: a 1ª tela foi preenchida na janela do robô. Confira (pode corrigir "
+                             f"algum campo lá mesmo) e escolha. Nesta versão nada é gravado no SGCOR.")
+        self.bt_continuar.setVisible(True)
+        self.bt_pular.setVisible(True)
+        self.bt_retomar.setVisible(False)
+        self.barra_conf.setVisible(True)
+        QApplication.alert(self)
+
+    def _login_necessario(self) -> None:
+        self.lb_conf.setText("O SGCOR pediu login. Entre com o seu usuário na janela do robô e clique em Retomar.")
+        self.bt_continuar.setVisible(False)
+        self.bt_pular.setVisible(False)
+        self.bt_retomar.setVisible(True)
+        self.barra_conf.setVisible(True)
+        QApplication.alert(self)
+
+    def _pausado(self, sim: bool) -> None:
+        if sim:
+            self.lb_conf.setText("Lote pausado.")
+            self.bt_continuar.setVisible(False)
+            self.bt_pular.setVisible(False)
+            self.bt_retomar.setText("Continuar o lote")
+            self.bt_retomar.setVisible(True)
+            self.barra_conf.setVisible(True)
+        else:
+            self.bt_retomar.setText("Retomar")
+            self.bt_pausar.setEnabled(True)
+
+    def _fim_lote(self, resumo: str) -> None:
+        self.executando = False
+        self.barra_conf.setVisible(False)
+        self.bt_pausar.setEnabled(False)
+        self.bt_sgcor.setEnabled(True)
+        self._atualizar_rodape()
+        self.statusBar().showMessage(resumo, 15000)
+        QApplication.alert(self)
 
     def closeEvent(self, ev):
+        if self.executando:
+            QMessageBox.information(self, "Robô em andamento", "Pare o lote (Parar lote) antes de fechar o app.")
+            ev.ignore()
+            return
         self.thread.quit()
         self.thread.wait(3000)
+        # o Playwright só pode ser fechado na thread em que foi aberto
+        QMetaObject.invokeMethod(self.trab, "encerrar", Qt.BlockingQueuedConnection)
+        self.thread_robo.quit()
+        self.thread_robo.wait(3000)
         self.estado.fechar()
         super().closeEvent(ev)
 

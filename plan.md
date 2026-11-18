@@ -237,6 +237,9 @@ F1 sozinha já entrega valor: um relatório "o que está pronto para cadastrar e
 ## 12. Decisões em aberto
 
 Nenhuma. F0 mapeada (`docs/f0-mapa-sgcor.md`); F1 concluída (leitura, regras, tela, coberturas + dicionário validado).
+F2 construída (robô Playwright + Chromium, perfil em `%LOCALAPPDATA%\SGCOR-Renovacoes\perfil-sgcor`): verificar conexão
+e carregar produtores, buscar e escolher a apólice, preencher a 1ª tela (Q52) e esperar; Pular/Parar/Pausar; prints e
+log locais com limpeza de 90 dias. Testada offline na página salva do SGCOR; **falta o 1º teste real** (Q39/Q45).
 
 ## 13. Registro de decisões
 

@@ -4,6 +4,9 @@
 [datas]
 # Vencimento da 1ª parcela (Porto e Tokio)
 primeira_parcela = "10/01/2027"
+# Vigência da renovação (Q37); proposta Porto com início diferente → pendência (Q44)
+vigencia_inicio = "31/12/2026"
+vigencia_fim = "31/12/2027"
 
 [apolice]
 # Nº provisório lançado em "Apólice" e "Apólice (Baixa comissão)"; o consultor troca na emissão (Q27)
@@ -37,6 +40,7 @@ debito = 12
 pix = 36
 
 [sgcor]
+url = "https://grupoprotege.sgcor.com.br/"
 companhia_porto = 12
 companhia_tokio = 13
 ramo_loterico = 9

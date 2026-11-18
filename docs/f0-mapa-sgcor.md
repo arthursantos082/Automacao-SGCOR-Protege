@@ -13,6 +13,8 @@
 | Confirmações | `confirmaSwal(...)` / `swal` (SweetAlert) | Clicar no botão de confirmar do SweetAlert |
 | Pesquisa | `?op=propostas&form=listar&p=<base64 do form serializado>` | Ex.: `p=YXBvbGljZT0yNjk0MDAw` = `apolice=2694000`. O robô pode **navegar direto** para a busca montando o `p` |
 | Mensagens | faixa verde no topo ("Arquivo inserido com sucesso!", "Atualização realizada com sucesso!") | Usar como confirmação de cada etapa |
+| Carregamento | ~1 s depois de abrir, a tela mostra `#conteudo-carregando` e esconde `#conteudo` enquanto busca dados por AJAX | O robô **espera o carregando sumir** antes de digitar (senão o valor é sobrescrito) |
+| Login | logado = existe elemento com `onclick*='logout'` | O robô nunca digita senha; login é do consultor na janela do robô |
 
 ## 1. Busca (Propostas/Apólices → Pesquisar)
 

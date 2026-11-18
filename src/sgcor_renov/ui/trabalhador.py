@@ -1,0 +1,189 @@
+"""Roda o robô numa thread própria (o Playwright síncrono fica sempre na mesma thread).
+
+A tela manda ordens por sinais (verificar, executar) e decisões por uma fila thread-safe (Continuar/Pular/Parar),
+porque durante a conferência a thread do robô fica parada esperando a decisão do consultor.
+"""
+from __future__ import annotations
+
+import logging
+import queue
+import shutil
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import QObject, Signal, Slot
+
+from ..config import Config
+from ..estado import pasta_dados
+from ..modelos import Caso
+from ..robo.navegador import FalhaRobo, Robo, SessaoExpirada
+
+log = logging.getLogger("sgcor_renov.robo")
+RETENCAO_DIAS = 90   # Q25
+
+
+def limpar_antigos(raiz: Path, dias: int = RETENCAO_DIAS) -> None:
+    """Apaga prints/logs locais com mais de 90 dias (têm dados de clientes)."""
+    if not raiz.exists():
+        return
+    limite = time.time() - dias * 86400
+    for p in raiz.iterdir():
+        try:
+            if p.stat().st_mtime < limite:
+                shutil.rmtree(p) if p.is_dir() else p.unlink()
+        except OSError:
+            pass
+
+
+class _ParaTela(logging.Handler):
+    def __init__(self, sinal):
+        super().__init__()
+        self.sinal = sinal
+        self.setFormatter(logging.Formatter("%(asctime)s  %(message)s", "%H:%M:%S"))
+
+    def emit(self, record):
+        self.sinal.emit(self.format(record))
+
+
+def configurar_log(sinal) -> None:
+    pasta = pasta_dados() / "logs"
+    pasta.mkdir(parents=True, exist_ok=True)
+    limpar_antigos(pasta)
+    limpar_antigos(pasta_dados() / "prints")
+    lg = logging.getLogger("sgcor_renov")
+    lg.setLevel(logging.INFO)
+    if not any(isinstance(h, logging.FileHandler) for h in lg.handlers):
+        fh = logging.FileHandler(pasta / f"robo-{datetime.now():%Y%m%d}.log", encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        lg.addHandler(fh)
+    lg.addHandler(_ParaTela(sinal))
+
+
+class Trabalhador(QObject):
+    linha_log = Signal(str)
+    conexao = Signal(bool, object)          # logado, [(id, nome)] produtores
+    situacao = Signal(object, str)          # pasta, texto ("Buscando…", "Pulada", "Pendência SGCOR: …")
+    aguardando = Signal(object, object)     # Caso, [Campo] — 1ª tela preenchida, esperando o consultor
+    login_necessario = Signal()
+    pausado = Signal(bool)
+    fim_lote = Signal(str)                  # resumo
+
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.decisoes: queue.Queue[str] = queue.Queue()
+        self.pausa = threading.Event()        # setado = pausar ao terminar a lotérica atual (Q47)
+        self.robo: Robo | None = None
+
+    # chamados da thread da tela (thread-safe)
+    def decidir(self, acao: str) -> None:       # "continuar" | "pular" | "parar" | "retomar"
+        self.decisoes.put(acao)
+
+    # ---------------------------------------------------------------- slots (thread do robô)
+
+    def _robo(self) -> Robo:
+        if self.robo is None:
+            configurar_log(self.linha_log)
+            self.robo = Robo(self.cfg, pasta_dados() / "perfil-sgcor", pasta_dados() / "prints")
+        return self.robo
+
+    def verificar(self) -> None:
+        try:
+            r = self._robo()
+            if r.verificar():
+                prods = r.produtores()
+                log.info("Conectado ao SGCOR. %d produtores carregados.", len(prods))
+                self.conexao.emit(True, prods)
+            else:
+                log.info("SGCOR sem login: faça o login na janela do robô e clique em Verificar de novo.")
+                self.conexao.emit(False, [])
+        except Exception as e:
+            log.error("Erro ao verificar a conexão: %s", e)
+            self.conexao.emit(False, [])
+
+    def executar(self, casos: list[Caso], produtor: str) -> None:
+        r = self._robo()
+        while not self.decisoes.empty():
+            self.decisoes.get_nowait()
+        puladas = pendentes = 0
+        parar = False
+        log.info("Lote iniciado: %d lotérica(s), modo Conferência, produtor %s.", len(casos), produtor)
+        for caso in casos:
+            if parar:
+                break
+            if self.pausa.is_set():
+                self.pausado.emit(True)
+                log.info("Pausado. Clique em Continuar o lote para retomar.")
+                while (d := self.decisoes.get()) not in ("retomar", "parar"):
+                    pass
+                self.pausa.clear()
+                self.pausado.emit(False)
+                if d == "parar":
+                    break
+            while True:   # repete a mesma lotérica depois de um novo login
+                try:
+                    self.situacao.emit(caso.pasta, "Buscando no SGCOR…")
+                    linha = r.buscar(caso)
+                    self.situacao.emit(caso.pasta, "Preenchendo a 1ª tela…")
+                    campos = r.preencher_renovacao(caso, linha)
+                    self.situacao.emit(caso.pasta, "Aguardando sua conferência")
+                    self.aguardando.emit(caso, campos)
+                    acao = self.decisoes.get()
+                    self._registrar_correcoes(caso, campos)
+                    if acao == "continuar":   # F3: Avançar → coberturas → repasse → parcelas → anexos
+                        log.info("%s: Continuar ainda não disponível nesta versão (F3); nada foi gravado.", caso.nome)
+                    r.descartar()
+                    self.situacao.emit(caso.pasta, "Conferida — nada gravado (F2)")
+                    puladas += 1
+                    parar = acao == "parar"
+                    break
+                except SessaoExpirada:
+                    log.warning("O SGCOR pediu login. Faça o login na janela do robô e clique em Retomar.")
+                    self.login_necessario.emit()
+                    if self.decisoes.get() == "parar":
+                        parar = True
+                        break
+                except FalhaRobo as e:
+                    r.print_(caso, "falha")
+                    log.warning("%s: %s", caso.nome, e)
+                    self.situacao.emit(caso.pasta, f"Pendência SGCOR: {e}")
+                    pendentes += 1
+                    self._sair_sem_salvar()
+                    break
+                except Exception as e:
+                    if r.page:
+                        r.print_(caso, "erro")
+                    log.error("%s: erro inesperado: %s", caso.nome, e)
+                    self.situacao.emit(caso.pasta, f"Erro: {e}")
+                    pendentes += 1
+                    self._sair_sem_salvar()
+                    break
+        resumo = f"Lote encerrado: {puladas} conferida(s) sem gravar, {pendentes} com pendência no SGCOR."
+        log.info(resumo)
+        self.fim_lote.emit(resumo)
+
+    def _sair_sem_salvar(self) -> None:
+        try:
+            self.robo.descartar()
+        except Exception:
+            pass
+
+    def _registrar_correcoes(self, caso: Caso, campos) -> None:
+        """Q42: o que o consultor mudou na tela antes de decidir fica no log (para melhorar as regras)."""
+        try:
+            atuais = self.robo.ler_campos(campos)
+        except Exception:
+            return
+        for c, atual in zip(campos, atuais):
+            if atual.strip() != c.valor.strip():
+                log.info("%s: consultor alterou “%s”: robô pôs “%s”, ficou “%s”.", caso.nome, c.rotulo, c.valor, atual)
+
+    @Slot()
+    def encerrar(self) -> None:
+        if self.robo:
+            try:
+                self.robo.fechar()
+            except Exception:
+                pass
