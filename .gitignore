@@ -1,0 +1,17 @@
+# Dados de clientes nunca entram no repositório
+*.pdf
+*.sqlite
+*.db
+logs/
+screenshots/
+.playwright-profile/
+.env
+# Páginas salvas do SGCOR (contêm dados reais de clientes)
+html-sgcor/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
