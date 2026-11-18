@@ -41,6 +41,10 @@ Ações por linha (ícones da coluna Opções):
 
 URL: `?op=propostas&form=alterar&propostaId=<P>&renovar=true` · form `#form-formulario` → `?op=propostas&acao=renovar&propostaId=<P>&original=<P>`.
 
+**O robô preenche só os campos marcados em amarelo pelo consultor** (print de 18/11/2026): Proposta, Apólice, Apólice (Baixa
+comissão), Vigência início e fim, **Confirma as datas de vigência?** (marcar), Comissão, Prêmio Total, IOF, Prêmio
+Líquido, Forma de Cobrança, Parcelas, 1ª Parcela – Vencimento e Emitida. Todo o resto fica como o SGCOR trouxe.
+
 | Campo na tela | Seletor | Valor do robô |
 |---|---|---|
 | Tipo | `select[name=tipo]` (4 = Renovação) | já vem 4 — só conferir |
@@ -49,8 +53,8 @@ URL: `?op=propostas&form=alterar&propostaId=<P>&renovar=true` · form `#form-for
 | Proposta | `input[name=proposta]` | Cotação nº (Tokio) / Nº do orçamento (Porto) |
 | Apólice | `#numeroApolice` (name `apolice`) | nº provisório `123456` (config); consultor troca na emissão (Q27) |
 | Apólice (Baixa comissão) | `#apolice` (name `apoliceBaixaComissao`) ⚠️ id enganoso | **igual ao campo Apólice** (informado pelo consultor) |
-| Vigência início/fim | `#data_texto_dataVigenciaInicial`, `#data_texto_dataVigenciaFinal` | vêm **vazios** na renovação → preencher do PDF |
-| Confirma as datas de vigência? | `#verificaConfirmacaoVigencia` | marcar (o Avançar chama `confirmaVigencia()`) |
+| Vigência início/fim | `#data_texto_dataVigenciaInicial`, `#data_texto_dataVigenciaFinal` | vêm **vazios** na renovação → data fixa da config (Q37) |
+| Confirma as datas de vigência? | `#verificaConfirmacaoVigencia` | **marcar** (indicado pelo consultor). Com ela marcada, o Avançar (`confirmaVigencia()`) abre o aviso “As datas de vigência … estão corretas?”: o cálculo do SGCOR soma 1 mês à data inicial, então o aviso aparece **sempre** para 31/12→31/12. O robô confirma o aviso só se as datas na tela forem as da config; senão, pendência |
 | Comissão | `#comissao` (name `comissao[]`) | vem a do ano anterior → sobrescrever com a do PDF |
 | Prêmio Total | `#premioTotal` | PDF |
 | Fracionamento | `#fracionamento` | não mexer — SGCOR preenche (Q29) |
@@ -61,7 +65,7 @@ URL: `?op=propostas&form=alterar&propostaId=<P>&renovar=true` · form `#form-for
 | 1ª Parcela vencimento | `#data_texto_dataEntrada` | 10/01/2027 (config) |
 | 1ª Parcela valor | `#valorEntrada` | não mexer — SGCOR preenche (Q29) |
 | Emitida | `#data_texto_dataEmitida` | hoje |
-| Corretor, Funcionário/Subscritor, Funcionário Emissor | `#corretorId`, `#funcionarioId`, `#funcionarioEmissorId` | já vêm — não mexer |
+| Corretor, Funcionário/Subscritor, Funcionário Emissor, Fracionamento, 1ª Parcela – Valor, Status, Segurado, Grupos | — | já vêm — **não mexer** |
 
 Barra: **Avançar** (`confirmaVigencia()`), Voltar, Importar PDF (`?op=importacaoPropostasNova&form=importarLote`).
 

@@ -1,14 +1,35 @@
-"""Leitura das pastas em segundo plano, relendo só as pastas que mudaram."""
+"""Leitura das pastas em segundo plano.
+
+- Só relê a pasta cujo PDF, ajuste ou configuração mudou (cache em memória + em disco, fora do git).
+- Pastas a reler são processadas em paralelo (um processo por núcleo): ler PDF custa 1–5 s por lotérica.
+"""
 from __future__ import annotations
 
+import hashlib
+import os
+import pickle
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from ..config import Config
-from ..estado import Ajuste
+from ..config import RAIZ, Config
+from ..estado import Ajuste, pasta_dados
 from ..modelos import Caso
 from ..scanner import analisar_pasta, assinatura, pastas_de, seguradora_da_pasta, soltos
+
+VERSAO_LEITURA = "4"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+
+
+def _versao() -> str:
+    h = hashlib.sha1(VERSAO_LEITURA.encode())
+    for f in sorted((RAIZ / "config").glob("*.toml")):
+        h.update(f.read_bytes())
+    return h.hexdigest()
+
+
+def _analisar(pasta: Path, seg: str, cfg: Config, ajuste: Ajuste | None) -> Caso:
+    return analisar_pasta(pasta, seg, cfg, ajuste)
 
 
 class Leitor(QObject):
@@ -16,38 +37,72 @@ class Leitor(QObject):
     concluido = Signal(object)            # list[Caso]
     erro = Signal(str)
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, arquivo_cache: Path | None = None):
         super().__init__()
         self.cfg = cfg
-        self._cache: dict[Path, tuple[tuple, tuple, Caso]] = {}   # pasta → (assinatura, ajuste, caso)
+        self.arquivo_cache = arquivo_cache or pasta_dados() / "cache-leitura.pickle"
+        self.versao = _versao()
+        self._cache: dict[Path, tuple[tuple, tuple, Caso]] = self._carregar_cache()
+
+    def _carregar_cache(self) -> dict:
+        try:
+            dados = pickle.loads(self.arquivo_cache.read_bytes())
+            return dados["casos"] if dados.get("versao") == self.versao else {}
+        except Exception:
+            return {}
+
+    def _salvar_cache(self) -> None:
+        try:
+            tmp = self.arquivo_cache.with_suffix(".tmp")
+            tmp.write_bytes(pickle.dumps({"versao": self.versao, "casos": self._cache}))
+            os.replace(tmp, self.arquivo_cache)
+        except Exception:
+            pass  # cache é só otimização
 
     def ler(self, raizes: list[Path], ajustes: dict[Path, Ajuste]) -> None:
         """Roda na thread do leitor. ajustes é uma cópia feita na thread da tela (SQLite não é compartilhado)."""
         try:
             alvos: list[tuple[Path, str]] = []
-            casos: list[Caso] = []
+            soltos_: list[Caso] = []
             for raiz in raizes:
                 if not raiz.is_dir():
                     continue
                 seg = seguradora_da_pasta(raiz)
-                casos.extend(soltos(raiz))
+                soltos_.extend(soltos(raiz))
                 alvos.extend((p, seg) for p in pastas_de(raiz))
-            vivos = set()
-            for i, (pasta, seg) in enumerate(alvos, 1):
-                self.progresso.emit(i, len(alvos), pasta.name)
-                vivos.add(pasta)
+
+            resultado: dict[Path, Caso] = {}
+            reler: list[tuple[Path, str, tuple, tuple]] = []
+            for pasta, seg in alvos:
                 a = ajustes.get(pasta)
                 chave_aj = (a.parcelas, a.forma, a.proposta) if a else ()
                 ass = assinatura(pasta)
                 hit = self._cache.get(pasta)
                 if hit and hit[0] == ass and hit[1] == chave_aj:
-                    casos.append(hit[2])
-                    continue
-                caso = analisar_pasta(pasta, seg, self.cfg, a)
-                self._cache[pasta] = (ass, chave_aj, caso)
-                casos.append(caso)
+                    resultado[pasta] = hit[2]
+                else:
+                    reler.append((pasta, seg, ass, chave_aj))
+
+            feitos = len(resultado)
+            total = len(alvos)
+            self.progresso.emit(feitos, total, "")
+            if reler:
+                trabalhadores = max(1, min(len(reler), (os.cpu_count() or 2) - 1))
+                with ProcessPoolExecutor(max_workers=trabalhadores) as ex:
+                    futuros = {ex.submit(_analisar, p, s, self.cfg, ajustes.get(p)): (p, ass, aj)
+                               for p, s, ass, aj in reler}
+                    for fut in as_completed(futuros):
+                        pasta, ass, aj = futuros[fut]
+                        caso = fut.result()
+                        self._cache[pasta] = (ass, aj, caso)
+                        resultado[pasta] = caso
+                        feitos += 1
+                        self.progresso.emit(feitos, total, pasta.name)
+
+            vivos = {p for p, _ in alvos}
             for velho in set(self._cache) - vivos:
                 del self._cache[velho]
-            self.concluido.emit(casos)
+            self._salvar_cache()
+            self.concluido.emit(soltos_ + [resultado[p] for p, _ in alvos])
         except Exception as e:  # nunca derrubar a tela por causa de um PDF
             self.erro.emit(f"{type(e).__name__}: {e}")

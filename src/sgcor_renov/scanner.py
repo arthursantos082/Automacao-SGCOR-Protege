@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import acordo as acordo_mod
+from . import coberturas as cob_mod
 from . import propostas as prop_mod
 from . import regras
 from .config import Config
@@ -50,6 +51,30 @@ def varrer(raizes: list[Path], cfg: Config, ajustes=None) -> list[Caso]:
         for pasta in pastas_de(raiz):
             casos.append(analisar_pasta(pasta, seg, cfg, ajustes(pasta) if ajustes else None))
     return casos
+
+
+_DIC: cob_mod.Dicionario | None = None
+
+
+def _coberturas(c: Caso, proposta: Path) -> None:
+    """Lê coberturas + LMI e classifica pelo dicionário; sem tipo ou tipo repetido → pendência (Q8)."""
+    global _DIC
+    _DIC = _DIC or cob_mod.Dicionario.carregar()
+    origem = c.proposta.seguradora.lower()
+    cobs = cob_mod.ler(proposta, c.proposta.seguradora)
+    if not cobs:
+        c.pendencias.append("Coberturas da proposta não encontradas")
+        return
+    vistos: dict[str, str] = {}
+    for cob in cobs:
+        t = _DIC.tipo_de(cob.nome, origem)
+        c.coberturas.append((cob, t.chave if t else None))
+        if t is None:
+            c.pendencias.append(f"Cobertura sem equivalência no dicionário: “{cob.nome}”")
+        elif t.chave in vistos:
+            c.pendencias.append(f"Duas coberturas do mesmo tipo ({t.descricao}): “{vistos[t.chave]}” e “{cob.nome}”")
+        else:
+            vistos[t.chave] = cob.nome
 
 
 def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
@@ -102,6 +127,7 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
         c.proposta = prop_mod.ler_proposta(textos[escolhida])
         if c.proposta.seguradora != seg:
             c.pendencias.append(f"Proposta é da {c.proposta.seguradora}, mas está na pasta da {seg}")
+        _coberturas(c, escolhida)
     if len(acordos) == 1:
         c.acordo = acordos[0]
         c.escolha, cnpjs = acordo_mod.ler_acordo(acordos[0], tipos[acordos[0]])

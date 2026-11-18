@@ -1,0 +1,148 @@
+# Dicionário de coberturas (Q38): agrupa por TIPO os nomes usados pela Porto, pela Tokio e pelo SGCOR.
+#
+# Como o robô usa: no item da renovação o SGCOR já traz as coberturas do ano anterior. Para cada cobertura
+# do PDF, o robô acha o TIPO dela aqui e procura no item a cobertura do SGCOR do mesmo TIPO; se houver
+# exatamente uma, ajusta o LMI. Sem tipo, tipo ausente no item ou 2+ do mesmo tipo → pendência (Q8).
+#
+# Os nomes são comparados sem acento, sem pontuação e em maiúsculas, pelo INÍCIO do nome.
+# Equivalências validadas pelo consultor em 18/11/2026 (Q48–Q51).
+
+[[tipo]]
+chave = "incendio"
+descricao = "Incêndio, raio, explosão (cobertura básica)"
+porto = ["INCENDIO EXPLOSAO IMPLOSAO FUMACA"]
+tokio = ["INCENDIO RAIO EXPLOSAO", "INCENDIO INCLUSIVE DECORRENTE DE TUMULTOS"]
+sgcor = ["INCENDIO"]
+
+[[tipo]]
+chave = "danos_eletricos"
+descricao = "Danos elétricos"
+porto = ["DANOS ELETRICOS"]
+tokio = ["DANOS ELETRICOS"]
+sgcor = ["DANOS ELETRICOS"]
+
+[[tipo]]
+chave = "roubo_bens"
+descricao = "Roubo/furto de bens (arrombamento)"
+porto = ["SUBTRACAO DE BENS"]
+tokio = ["ROUBO E FURTO MEDIANTE ARROMBAMENTO"]
+sgcor = ["ROUBO E FURTO MEDIANTE ARROMBAMENTO", "ROUBO FURTO POR ARROMBAMENTO", "SUBTRACAO DE BENS"]
+
+[[tipo]]
+chave = "valores_interior"
+descricao = "Valores no interior do estabelecimento"
+porto = ["SUBTRACAO DE VALORES"]
+tokio = ["VALORES NO INTERIOR DO ESTABELECIMENTO"]
+sgcor = ["GERPA SUB DE VALORES NO INTERIOR", "VALORES NO INTERIOR DO ESTABELECIMENTO", "SUBTRACAO DE VALORES"]
+
+[[tipo]]
+chave = "valores_transito"
+descricao = "Valores em trânsito (fora do estabelecimento)"
+porto = []
+tokio = ["VALORES EM TRANSITO"]
+sgcor = ["GERPA SUB DE VALORES FORA", "VALORES EM TRANSITO"]
+
+[[tipo]]
+chave = "quebra_vidros"
+descricao = "Quebra de vidros"
+porto = ["QUEBRA DE VIDROS"]
+tokio = ["QUEBRA DE VIDROS"]
+sgcor = ["QUEBRA DE VIDROS"]
+
+[[tipo]]
+chave = "rc_operacoes"
+descricao = "Responsabilidade civil operações"
+porto = []
+tokio = ["RESPONSABILIDADE CIVIL OPERACOES"]
+sgcor = ["RESPONSABILIDADE CIVIL OPERACOES"]
+
+[[tipo]]
+chave = "rc"
+descricao = "Responsabilidade civil (genérica)"
+porto = ["RESPONSABILIDADE CIVIL"]          # o início mais longo vence: RC EMPREGADOR / DANOS MORAIS ficam nos seus tipos
+tokio = []
+sgcor = ["RESPONSABILIDADE CIVIL"]
+
+[[tipo]]
+chave = "rc_empregador"
+descricao = "Responsabilidade civil empregador"
+porto = ["RESPONSABILIDADE CIVIL EMPREGADOR"]
+tokio = ["RESPONSABILIDADE CIVIL EMPREGADOR"]
+sgcor = ["RESPONSABILIDADE CIVIL EMPREGADOR"]
+
+[[tipo]]
+chave = "danos_morais"
+descricao = "Danos morais (de RC)"
+porto = ["RESPONSABILIDADE CIVIL DANOS MORAIS"]
+tokio = ["DANOS MORAIS"]
+sgcor = ["DANOS MORAIS"]
+
+[[tipo]]
+chave = "aluguel"
+descricao = "Perda/pagamento ou despesas de aluguel"
+porto = ["PERDA OU PAGAMENTO DE ALUGUEL"]
+tokio = ["DESPESAS DE ALUGUEL"]
+sgcor = ["PERDA DE ALUGUEL", "DESPESAS DE ALUGUEL"]
+
+[[tipo]]
+chave = "lucros_cessantes"
+descricao = "Lucros cessantes / despesas fixas"
+porto = ["LUCROS CESSANTES", "DESPESAS FIXAS"]
+tokio = ["LUCROS CESSANTES"]
+sgcor = ["LUCROS CESSANTES", "DESPESAS FIXAS"]
+
+[[tipo]]
+chave = "tumultos"
+descricao = "Tumultos, greves e lockout"
+porto = ["TUMULTO GREVE E LOCK OUT"]
+tokio = ["TUMULTOS GREVES LOCKOUT"]
+sgcor = ["TUMULTOS"]
+
+[[tipo]]
+chave = "vendaval"
+descricao = "Vendaval, furacão, ciclone, tornado, granizo"
+porto = ["VENDAVAL"]
+tokio = ["VENDAVAL"]
+sgcor = ["VENDAVAL"]
+
+[[tipo]]
+chave = "alagamento"
+descricao = "Alagamento e inundação"
+porto = ["ALAGAMENTO"]
+tokio = ["ALAGAMENTO"]
+sgcor = ["ALAGAMENTO"]
+
+[[tipo]]
+chave = "impacto_veiculos"
+descricao = "Impacto de veículos"
+porto = ["IMPACTO DE VEICULOS"]
+tokio = []
+sgcor = ["IMPACTO DE VEICULOS"]
+
+[[tipo]]
+chave = "tremor_terra"
+descricao = "Tremor de terra e terremoto"
+porto = ["TREMOR DE TERRA"]
+tokio = []
+sgcor = ["TREMOR DE TERRA"]
+
+[[tipo]]
+chave = "desmoronamento"
+descricao = "Desmoronamento"
+porto = ["DESMORONAMENTO"]
+tokio = []
+sgcor = ["DESMORONAMENTO"]
+
+[[tipo]]
+chave = "salvamento"
+descricao = "Despesas de salvamento"
+porto = ["DESPESAS DE SALVAMENTO"]
+tokio = []
+sgcor = ["DESPESAS DE CONTENCAO E SALVAMENTO"]
+
+[[tipo]]
+chave = "custos_defesa"
+descricao = "Custos de defesa"
+porto = ["CUSTOS DE DEFESA"]
+tokio = []
+sgcor = ["CUSTOS DE DEFESA"]

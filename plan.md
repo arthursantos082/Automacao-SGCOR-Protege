@@ -236,8 +236,7 @@ F1 sozinha já entrega valor: um relatório "o que está pronto para cadastrar e
 
 ## 12. Decisões em aberto
 
-Nenhuma no nível de planejamento. F0 mapeada (ver `docs/f0-mapa-sgcor.md`). Ainda a confirmar:
-- dicionário de coberturas: nomes da seguradora × as 105 coberturas do SGCOR (sai da F1, cruzando os 36 PDFs).
+Nenhuma. F0 mapeada (`docs/f0-mapa-sgcor.md`); F1 concluída (leitura, regras, tela, coberturas + dicionário validado).
 
 ## 13. Registro de decisões
 
@@ -261,6 +260,12 @@ Nenhuma no nível de planejamento. F0 mapeada (ver `docs/f0-mapa-sgcor.md`). Ain
 | Q45 | A 1ª lotérica do teste real: eu sugiro uma sem avisos, o consultor confirma | 18/11/2026 |
 | Q46 | `planejamento-f0` vai para a main e **a branch é mantida** no GitHub como histórico | 18/11/2026 |
 | Q47 | **Pausar** = termina a lotérica em andamento e para; Continuar retoma a fila | 18/11/2026 |
+| F1 | Dicionário de coberturas por **tipo** (`config/coberturas.toml`): o robô casa cada cobertura do PDF com a cobertura do **mesmo tipo já existente no item** e só ajusta o LMI (o catálogo do SGCOR tem códigos duplicados, então não se escolhe código) | 18/11/2026 |
+| Q48 | Porto "Subtração de valores" = valores no interior (GERPA interior) | 18/11/2026 |
+| Q49 | Porto "Responsabilidade civil" = SGCOR "RESPONSABILIDADE CIVIL" genérica (≠ RC operações) | 18/11/2026 |
+| Q50 | Porto "Despesas fixas" / "Lucros cessantes" = mesmo tipo de lucros cessantes/despesas fixas do SGCOR | 18/11/2026 |
+| Q51 | Cobertura do item sem par na proposta: LMI 0 → ignora; LMI > 0 → pendência | 18/11/2026 |
+| Q52 | 1ª tela: o robô preenche **só os campos marcados pelo consultor** (Proposta, Apólice, Apólice Baixa comissão, Vigência, "Confirma as datas de vigência?" marcada, Comissão, Prêmio Total, IOF, Prêmio Líquido, Forma de Cobrança, Parcelas, 1ª Parcela–Vencimento, Emitida); o resto fica como veio. O aviso de datas que o SGCOR abre no Avançar é confirmado só se as datas forem as da config | 18/11/2026 |
 | Q3 | Chave de busca = **CNPJ** da proposta; apólice anterior escolhe a linha | 18/11/2026 |
 | Q4 | Cotação nº (Tokio) / Nº do orçamento (Porto) → campo "Proposta" | 18/11/2026 |
 | Q5 | Tabela de bônus da imagem 15 (R$ 26,00 era campanha antiga) | 18/11/2026 |

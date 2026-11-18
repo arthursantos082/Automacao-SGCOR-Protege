@@ -41,7 +41,7 @@ class Janela(QMainWindow):
         self.resize(1400, 820)
         self.cfg = carregar()
         self.estado = Estado()
-        self.settings = QSettings(ORG, APP)
+        self.settings = QSettings()   # usa ORG/APP do QApplication e o formato padrão (registro; arquivo nos testes)
         self.lendo = False
         self.reler_depois = False
 
@@ -198,6 +198,10 @@ class Janela(QMainWindow):
         self.ls_avisos.setMaximumHeight(110)
         self.ls_avisos.setWordWrap(True)
         lay.addWidget(self.ls_avisos)
+        lay.addWidget(QLabel("Coberturas da proposta (LMI)"))
+        self.ls_cob = QListWidget()
+        self.ls_cob.setMaximumHeight(130)
+        lay.addWidget(self.ls_cob)
 
         box = QGroupBox("Resolver (o que o consultor confirmou)")
         f = QFormLayout(box)
@@ -372,6 +376,12 @@ class Janela(QMainWindow):
             self.ls_pend.addItem(it)
         self.ls_avisos.clear()
         self.ls_avisos.addItems(c.avisos)
+        self.ls_cob.clear()
+        for cob, chave in c.coberturas:
+            it = QListWidgetItem(f"R$ {formatar_dinheiro(cob.lmi):>12}   {cob.nome}" + ("" if chave else "   ⚠ sem equivalência"))
+            if not chave:
+                it.setForeground(QColor("#f0533f"))
+            self.ls_cob.addItem(it)
 
         a = self.estado.ajuste(c.pasta) if c.pasta.is_dir() else None
         self.sp_parcelas.setValue((a.parcelas or 0) if a else 0)
@@ -482,6 +492,8 @@ class Confirmacao(QDialog):
 
 
 def main() -> int:
+    import multiprocessing
+    multiprocessing.freeze_support()   # leitura paralela também funciona no .exe (F4)
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)

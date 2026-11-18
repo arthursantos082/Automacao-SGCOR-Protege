@@ -65,6 +65,7 @@ class Caso:
     iof: Decimal | None = None
     premio_total: Decimal | None = None
     bonus: Decimal | None = None
+    coberturas: list = field(default_factory=list)   # [(Cobertura, chave do tipo | None)]
     pendencias: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)
 
