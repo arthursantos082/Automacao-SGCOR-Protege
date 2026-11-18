@@ -55,6 +55,7 @@ class Caso:
     nome: str
     acordo: Path | None = None
     propostas: list[Path] = field(default_factory=list)
+    proposta_escolhida: Path | None = None
     proposta: Proposta | None = None
     escolha: Escolha | None = None
     parcelas: int | None = None

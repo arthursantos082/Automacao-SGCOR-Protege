@@ -30,7 +30,9 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
         caso.pendencias.append("Parcelas não combinadas no acordo — perguntar ao consultor")
     else:
         caso.parcelas = e.parcelas
-        if e.origem == "oferta aceita":
+        if e.origem == "consultor":
+            caso.avisos.append(f"Parcelas informadas pelo consultor no app: {e.parcelas}")
+        elif e.origem == "oferta aceita":
             caso.avisos.append(f"Parcelas pela oferta do consultor aceita pelo cliente: “{e.trecho_parcelas}”")
 
     # forma

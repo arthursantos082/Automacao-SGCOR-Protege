@@ -202,8 +202,11 @@ O consultor resolve **dentro do app** (ex.: digita "6") e a lotérica volta para
 - **Verificar conexão ao SGCOR** (status verde/vermelho)
 - **Tabela de lotéricas**: ☐ | Seguradora | Lotérica | CNPJ | Apólice anterior | Prêmio total | Parcelas | Comissão → Bônus | Status
   - "Selecionar todos", filtros por status (Novo / Pronto / Pendente / Concluído / Erro)
-- **Modo**: `Conferência` (preenche e para antes de salvar) × `Automático`
-- **Executar** / **Pausar** / log ao vivo
+- **Modo**: `Conferência` (preenche a 1ª tela e espera o Continuar — Q34/Q41) × `Automático` (liberado só na F3)
+- **Executar selecionadas** → janela de **resumo + confirmação** (padrão = Cancelar) → robô (F2). Pausar / log ao vivo na F2.
+- Painel de detalhe: dados lidos, trecho do acordo, pendências/avisos, **Resolver** (parcelas, forma, proposta final),
+  abrir pasta/acordo/proposta. Ajustes ficam em `%LOCALAPPDATA%\SGCOR-Renovacoes\estado.sqlite` (fora do git).
+- Pastas observadas: PDF/pasta nova ou alterada é relida sozinha (só o que mudou). Abrir: `abrir-app.bat`.
 
 ---
 
@@ -244,6 +247,20 @@ Nenhuma no nível de planejamento. F0 mapeada (ver `docs/f0-mapa-sgcor.md`). Ain
 | Q2 | Sem usuário de robô; cada consultor usa o próprio login num **navegador dedicado ao SGCOR** | 18/11/2026 |
 | Q2b | Leitura das pastas contínua; cadastro no SGCOR **em lote** (substituída em parte pela Q33: sem agendamento) | 18/11/2026 |
 | Q33 | Nada no SGCOR sem clique: cadastro só quando o consultor clica "Executar", com resumo e confirmação antes; **sem horário agendado** | 18/11/2026 |
+| Q34 | Modo Conferência = robô preenche **só a 1ª tela** (renovação) e espera; depois do OK faz coberturas, repasse, parcelas e anexos sozinho | 18/11/2026 |
+| Q35 | Navegador do robô = **Chromium embutido** no .exe, com perfil próprio | 18/11/2026 |
+| Q36 | Produtor escolhido numa **lista lida do SGCOR** ao "Verificar conexão"; fica salvo | 18/11/2026 |
+| Q37 | Vigência = **data fixa da configuração** (31/12/2026 a 31/12/2027), para Porto e Tokio | 18/11/2026 |
+| Q38 | Dicionário de coberturas: eu proponho a partir dos 36 PDFs + 105 coberturas do SGCOR, o consultor valida uma vez | 18/11/2026 |
+| Q39 | Primeiro cadastro real com **1 lotérica**, acompanhada, em modo Conferência | 18/11/2026 |
+| Q40 | Commits **direto na main** (sem PR) | 18/11/2026 |
+| Q41 | OK da 1ª tela pelo botão **Continuar** no app (ou "Pular lotérica"); o robô clica Avançar | 18/11/2026 |
+| Q42 | Correção manual na 1ª tela antes do OK é **mantida e registrada** no histórico | 18/11/2026 |
+| Q43 | No Automático a janela do robô fica **visível** | 18/11/2026 |
+| Q44 | Vigência de início da proposta Porto ≠ configuração → **pendência** | 18/11/2026 |
+| Q45 | A 1ª lotérica do teste real: eu sugiro uma sem avisos, o consultor confirma | 18/11/2026 |
+| Q46 | `planejamento-f0` vai para a main e **a branch é mantida** no GitHub como histórico | 18/11/2026 |
+| Q47 | **Pausar** = termina a lotérica em andamento e para; Continuar retoma a fila | 18/11/2026 |
 | Q3 | Chave de busca = **CNPJ** da proposta; apólice anterior escolhe a linha | 18/11/2026 |
 | Q4 | Cotação nº (Tokio) / Nº do orçamento (Porto) → campo "Proposta" | 18/11/2026 |
 | Q5 | Tabela de bônus da imagem 15 (R$ 26,00 era campanha antiga) | 18/11/2026 |
