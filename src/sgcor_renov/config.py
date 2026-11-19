@@ -1,12 +1,14 @@
 """Carrega a configuração editável (config/padrao.toml)."""
 from __future__ import annotations
 
+import sys
 import tomllib
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[2]
+# no .exe (PyInstaller) a pasta config/ fica ao lado do AutoCOR.exe, editável pela TI
+RAIZ = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 PADRAO = RAIZ / "config" / "padrao.toml"
 
 

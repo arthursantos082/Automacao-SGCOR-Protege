@@ -1,0 +1,23 @@
+AutoCOR — renovações lotéricas → SGCOR (Grupo Protege)
+=======================================================
+
+INSTALAÇÃO (TI)
+Não precisa instalar Python nem nada além do Google Chrome: tudo já vem dentro desta pasta.
+1. O computador precisa ter o Google Chrome instalado (o robô usa o Chrome).
+2. Copie a pasta AutoCOR inteira para C:\Program Files\AutoCOR (ou outra pasta fixa).
+   Não separe o AutoCOR.exe da pasta _internal nem da pasta config.
+3. Crie um atalho do AutoCOR.exe na área de trabalho do consultor.
+
+CONFIGURAÇÃO
+- config\padrao.toml: datas da campanha (vigência, 1ª parcela), tabela de bônus,
+  formas de cobrança e endereço do SGCOR.
+- config\coberturas.toml: dicionário de coberturas Porto/Tokio ↔ SGCOR.
+Depois de editar, feche e abra o AutoCOR.
+
+DADOS LOCAIS (não apagar durante a campanha)
+%LOCALAPPDATA%\SGCOR-Renovacoes: estado (ajustes, renovações pela metade, cadastradas),
+logs e prints do robô (apagados automaticamente após 90 dias) e o perfil do Chrome do robô.
+
+USO
+Ao abrir, o AutoCOR mostra um tutorial (também no botão "Como usar").
+O consultor faz o login no SGCOR na janela do Chrome do robô; o AutoCOR nunca guarda senha.
