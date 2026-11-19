@@ -59,6 +59,7 @@ class Robo:
             self._ctx = self._pw.chromium.launch_persistent_context(
                 str(self.perfil), channel=self.cfg.navegador, headless=False, no_viewport=True,
                 args=["--start-maximized"], accept_downloads=False,
+                chromium_sandbox=True,   # sem isto o Chrome mostra a faixa "--no-sandbox ... segurança afetadas"
             )
             self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
             self.page.set_default_timeout(30000)
@@ -242,8 +243,13 @@ class Robo:
     # ------------------------------------------------------------ F3: depois da 1ª tela
 
     def _botao(self, texto: str):
-        return self.page.locator("ul.botoesToolbar li").filter(
+        """Botão da barra pelo texto exato. Nas listas a barra é ul.botoesToolbar; nos formulários é uma <ul> sem
+        classe dentro de #form-toolbar — por isso: qualquer li.noselect VISÍVEL com o <span> do texto."""
+        return self.page.locator("li.noselect:visible").filter(
             has=self.page.locator(f"span:text-is('{texto}')")).first
+
+    def _salvar(self):
+        return self.page.locator("li#btnSalvar:visible").first
 
     def _swal(self, timeout_ms: int = 8000) -> str | None:
         """Texto do aviso SweetAlert2 aberto (ou None se nenhum abrir no prazo)."""
@@ -302,7 +308,7 @@ class Robo:
             if normalizar_valor(campo.input_value()) != normalizar_valor(formatar_dinheiro(a.para)):
                 raise FalhaRobo(f"LMI de “{a.nome_sgcor}” não aceitou {formatar_dinheiro(a.para)}")
             with self.page.expect_navigation(timeout=30000):
-                self.page.locator("li#btnSalvar").first.click()
+                self._salvar().click()
             self.esperar_tela()
             log.info("%s: LMI de “%s” %s → %s", caso.nome, a.nome_sgcor, a.de, a.para)
         # confere a lista de novo
@@ -370,7 +376,7 @@ class Robo:
             self.page.locator("input[name='descricao']").first.fill(descricao)
             self.page.locator("input[type='file'][name='arquivo']").first.set_input_files(str(arq))
             with self.page.expect_navigation(timeout=60000):
-                self.page.locator("li#btnSalvar").first.click()
+                self._salvar().click()
             self.esperar_tela()
             log.info("%s: anexo %s enviado (%s).", caso.nome, descricao, arq.name)
         self.ir(lista, popup=True)
