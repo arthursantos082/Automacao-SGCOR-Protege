@@ -39,7 +39,24 @@ class Estado:
         self.db.execute("""CREATE TABLE IF NOT EXISTS renovacoes_pela_metade (
             pasta TEXT PRIMARY KEY, proposta_id TEXT NOT NULL, etapa TEXT NOT NULL, motivo TEXT,
             atualizado TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        # lotéricas que o robô terminou (chave = pasta já dentro de _CADASTRADOS)
+        self.db.execute("""CREATE TABLE IF NOT EXISTS cadastradas (
+            pasta TEXT PRIMARY KEY, nome TEXT, seguradora TEXT, proposta_id TEXT, produtor TEXT,
+            quando TEXT DEFAULT (datetime('now', 'localtime')))""")
         self.db.commit()
+
+    def registrar_cadastrada(self, pasta: Path, nome: str, seguradora: str, proposta_id: str, produtor: str,
+                             quando: str | None = None) -> None:
+        self.db.execute(
+            "INSERT OR REPLACE INTO cadastradas (pasta, nome, seguradora, proposta_id, produtor, quando) "
+            "VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now', 'localtime')))",
+            (str(pasta), nome, seguradora, proposta_id, produtor, quando))
+        self.db.commit()
+
+    def cadastradas(self) -> dict[str, dict]:
+        """pasta → {nome, seguradora, proposta_id, produtor, quando}."""
+        cur = self.db.execute("SELECT pasta, nome, seguradora, proposta_id, produtor, quando FROM cadastradas")
+        return {r[0]: dict(zip(("nome", "seguradora", "proposta_id", "produtor", "quando"), r[1:])) for r in cur}
 
     def pela_metade(self, pasta: Path) -> tuple[str, str] | None:
         row = self.db.execute("SELECT proposta_id, etapa FROM renovacoes_pela_metade WHERE pasta = ?",

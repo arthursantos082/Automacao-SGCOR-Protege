@@ -242,6 +242,7 @@ class Trabalhador(QObject):
                         r.anexos(caso, proposta_id)
                     self.estado.limpar_pela_metade(caso.pasta)
                     destino = mover_para_cadastrados(caso.pasta)
+                    self.estado.registrar_cadastrada(destino, caso.nome, caso.seguradora, proposta_id, produtor)
                     log.info("%s: CADASTRADA no SGCOR (ID %s). Pasta movida para %s.", caso.nome, proposta_id,
                              destino.parent.name)
                     self.situacao.emit(caso.pasta, f"Cadastrada no SGCOR (ID {proposta_id})")

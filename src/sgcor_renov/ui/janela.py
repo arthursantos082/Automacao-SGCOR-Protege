@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
@@ -21,11 +21,24 @@ from ..config import carregar
 from ..estado import Ajuste, Estado
 from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
+from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
 from .tabela import FORMAS, FiltroCasos, ModeloCasos
 from .trabalhador import Trabalhador
 
 ORG, APP = "GrupoProtege", "SGCOR-Renovacoes"
+RECURSOS = Path(__file__).parent / "recursos"
+AZUL = "#12284F"          # azul-marinho da logo do Grupo Protege
+ESTILO = f"""
+#cabecalho {{ background: {AZUL}; }}
+#cabecalho QLabel {{ color: white; }}
+#titulo {{ font-size: 17px; font-weight: 600; }}
+QPushButton#primario {{ background: {AZUL}; color: white; border: 1px solid #2c4c86; border-radius: 4px;
+                        padding: 6px 22px; font-weight: 600; }}
+QPushButton#primario:hover {{ background: #1d3a6e; }}
+QPushButton#primario:pressed {{ background: #0b1a36; }}
+QPushButton#primario:disabled {{ background: #9aa5b8; color: #eef1f5; }}
+"""
 
 
 def abrir_no_windows(caminho: Path) -> None:
@@ -58,7 +71,27 @@ class Janela(QMainWindow):
 
     def _montar(self) -> None:
         central = QWidget()
-        raiz = QVBoxLayout(central)
+        externo = QVBoxLayout(central)
+        externo.setContentsMargins(0, 0, 0, 0)
+        externo.setSpacing(0)
+
+        # faixa com a identidade do Grupo Protege
+        cabecalho = QFrame()
+        cabecalho.setObjectName("cabecalho")
+        cl = QHBoxLayout(cabecalho)
+        cl.setContentsMargins(16, 10, 20, 10)
+        logo = QLabel()
+        logo.setPixmap(QPixmap(str(RECURSOS / "logo-protege.png")).scaledToHeight(44, Qt.SmoothTransformation))
+        cl.addWidget(logo)
+        cl.addStretch(1)
+        titulo = QLabel("Renovações Lotéricas → SGCOR")
+        titulo.setObjectName("titulo")
+        cl.addWidget(titulo)
+        externo.addWidget(cabecalho)
+
+        corpo = QWidget()
+        raiz = QVBoxLayout(corpo)
+        externo.addWidget(corpo, 1)
 
         # pastas + consultor
         topo = QGridLayout()
@@ -107,8 +140,13 @@ class Janela(QMainWindow):
         bt_nenhum.clicked.connect(lambda: self.modelo.marcar_todos(self.modelo.casos, False))
         bt_ler = QPushButton("Ler pastas agora")
         bt_ler.clicked.connect(self.ler)
+        self.bt_cadastradas = QPushButton("Ver cadastradas")
+        self.bt_cadastradas.setToolTip("Lotéricas já cadastradas (pastas em _CADASTRADOS), com o ID do SGCOR")
+        self.bt_cadastradas.clicked.connect(self._ver_cadastradas)
         for b in (bt_todos, bt_nenhum, bt_ler):
             filtros.addWidget(b)
+        filtros.addSpacing(16)
+        filtros.addWidget(self.bt_cadastradas)
         raiz.addLayout(filtros)
 
         # tabela | detalhe
@@ -151,6 +189,7 @@ class Janela(QMainWindow):
         self.bt_pausar.clicked.connect(self._pausar)
         rodape.addWidget(self.bt_pausar)
         self.bt_executar = QPushButton("Executar selecionadas")
+        self.bt_executar.setObjectName("primario")
         self.bt_executar.setMinimumHeight(34)
         self.bt_executar.clicked.connect(self.executar)
         rodape.addWidget(self.bt_executar)
@@ -473,6 +512,12 @@ class Janela(QMainWindow):
         n = len(self.modelo.selecionados())
         self.lb_contagem.setText(f"{n} selecionada(s)")
         self.bt_executar.setEnabled(n > 0 and not self.executando)
+        cad = sum(1 for r in self._raizes() if (r / "_CADASTRADOS").is_dir()
+                  for p in (r / "_CADASTRADOS").iterdir() if p.is_dir())
+        self.bt_cadastradas.setText(f"Ver cadastradas ({cad})")
+
+    def _ver_cadastradas(self) -> None:
+        JanelaCadastradas(self, [r for r in self._raizes() if r.is_dir()], self.estado, abrir_no_windows).exec()
 
     # ------------------------------------------------------------------ robô
 
@@ -666,9 +711,15 @@ class Confirmacao(QDialog):
 def main() -> int:
     import multiprocessing
     multiprocessing.freeze_support()   # leitura paralela também funciona no .exe (F4)
+    if sys.platform == "win32":
+        # ícone próprio na barra de tarefas (senão o Windows agrupa com o ícone do Python)
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrupoProtege.SGCORRenovacoes")
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
+    app.setWindowIcon(QIcon(str(RECURSOS / "icone.ico")))
+    app.setStyleSheet(ESTILO)
     j = Janela()
     j.show()
     return app.exec()
