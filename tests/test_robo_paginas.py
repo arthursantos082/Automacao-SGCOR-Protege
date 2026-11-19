@@ -75,6 +75,13 @@ def test_mesma_vigencia_vale_a_de_nivel_producao():
     assert motivo is None and linha.proposta_id == "56042"
 
 
+def test_apolice_que_nao_termina_no_inicio_da_nova_vigencia_vira_pendencia():
+    """Caso real (DDA): sem a linha de 2025–2026 em Produção, a mais recente era 2024–2025 — não pode renovar essa."""
+    linha, motivo = escolher_apolice([_l("47850", "31/12/2025", ini="31/12/2024"),
+                                      _l("56035", "31/12/2026", nivel="Revisão")], _caso(), CFG)
+    assert linha is None and "termina em 31/12/2025" in motivo
+
+
 def test_so_revisao_vira_pendencia():
     linha, motivo = escolher_apolice([_l("56035", "31/12/2026", nivel="Revisão")], _caso(), CFG)
     assert linha is None and "Produção" in motivo
@@ -83,7 +90,8 @@ def test_so_revisao_vira_pendencia():
 def test_escolhe_a_de_vigencia_mais_recente_da_seguradora_e_ramo():
     linhas = [_l("1", "31/12/2025", ini="31/12/2024"), _l("2", "31/12/2026"),
               _l("3", "30/10/2027", ini="30/10/2026", ramo="VIDA EMPRESARIAL"),
-              _l("4", "31/12/2027", ini="31/12/2026", cia="PORTO SEGURO CIA")]
+              _l("4", "31/12/2027", ini="31/12/2026", cia="PORTO SEGURO CIA"),
+              _l("5", "31/12/2026", nivel="Revisão")]
     linha, motivo = escolher_apolice(linhas, _caso(), CFG)
     assert motivo is None and linha.proposta_id == "2"
 

@@ -239,7 +239,9 @@ F1 sozinha já entrega valor: um relatório "o que está pronto para cadastrar e
 Nenhuma. F0 mapeada (`docs/f0-mapa-sgcor.md`); F1 concluída (leitura, regras, tela, coberturas + dicionário validado).
 F2 construída (robô Playwright + Chrome instalado (Q53), perfil em `%LOCALAPPDATA%\SGCOR-Renovacoes\perfil-sgcor`): verificar conexão
 e carregar produtores, buscar e escolher a apólice, preencher a 1ª tela (Q52) e esperar; Pular/Parar/Pausar; prints e
-log locais com limpeza de 90 dias. Testada offline na página salva do SGCOR; **falta o 1º teste real** (Q39/Q45).
+log locais com limpeza de 90 dias. 1ª tela testada no SGCOR real (DDA, 19/11/2026): campos corretos.
+F3 construída (Avançar + aviso de datas, coberturas pelo dicionário, repasse, conferência das parcelas, anexos,
+mover pasta); leitores testados nas páginas salvas; **falta o 1º cadastro completo real**.
 
 ## 13. Registro de decisões
 
@@ -271,6 +273,9 @@ log locais com limpeza de 90 dias. Testada offline na página salva do SGCOR; **
 | Q53 | Navegador do robô = **Google Chrome instalado**, com perfil próprio (substitui a Q35: o Chromium do Playwright não é assinado e o Controle Inteligente de Aplicativos do Windows 11 o bloqueia). Cada máquina precisa ter o Chrome; alternativa configurável: Edge | 18/11/2026 |
 | F2 | "Verificar conexão" espera o consultor logar na janela do robô e conecta sozinho (até 5 min); o robô roda numa thread Python própria (o laço do Qt quebrava o Playwright no 2º comando) | 18/11/2026 |
 | Q54 | Na busca, vale só o registro em **Nível Produção** (bolinha verde); Nível Revisão (bolinha amarela) é desconsiderado, mesmo com a mesma vigência (caso real: DDA). Só Revisão → pendência | 18/11/2026 |
+| Q55 | Escolha da apólice continua **só pela vigência** (muitas têm 123456; nº não é comparado), com a trava: a apólice a renovar tem de **terminar no início da nova vigência** (31/12/2026); senão → pendência (caso real: DDA abriu a de 2024–2025) | 19/11/2026 |
+| Q56 | **Modo Automático é o padrão** (substitui Q34/Q41): o robô faz 1ª tela → Avançar → coberturas → repasse → parcelas → anexos → move a pasta, sem o consultor. O consultor só intervém nas pendências (antes no app, ou "Pela metade" se algo falhar depois do Avançar). Modo Conferência continua como opção (para na 1ª tela; Continuar grava) | 19/11/2026 |
+| F3 | Fechar o app com lote em andamento: o robô termina a lotérica atual e o app fecha (nunca interrompe no meio de uma gravação) | 19/11/2026 |
 | Q52 | 1ª tela: o robô preenche **só os campos marcados pelo consultor** (Proposta, Apólice, Apólice Baixa comissão, Vigência, "Confirma as datas de vigência?" marcada, Comissão, Prêmio Total, IOF, Prêmio Líquido, Forma de Cobrança, Parcelas, 1ª Parcela–Vencimento, Emitida); o resto fica como veio. O aviso de datas que o SGCOR abre no Avançar é confirmado só se as datas forem as da config | 18/11/2026 |
 | Q3 | Chave de busca = **CNPJ** da proposta; apólice anterior escolhe a linha | 18/11/2026 |
 | Q4 | Cotação nº (Tokio) / Nº do orçamento (Porto) → campo "Proposta" | 18/11/2026 |

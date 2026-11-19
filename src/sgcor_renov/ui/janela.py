@@ -137,9 +137,8 @@ class Janela(QMainWindow):
         rodape = QHBoxLayout()
         rodape.addWidget(QLabel("Modo:"))
         self.cb_modo = QComboBox()
-        self.cb_modo.addItem("Conferência — preenche e para antes de salvar", "conferencia")
-        self.cb_modo.addItem("Automático — disponível na F3", "automatico")
-        self.cb_modo.model().item(1).setEnabled(False)
+        self.cb_modo.addItem("Automático — faz tudo; só para em pendência", "automatico")
+        self.cb_modo.addItem("Conferência — para na 1ª tela para você conferir", "conferencia")
         rodape.addWidget(self.cb_modo)
         rodape.addStretch(1)
         self.lb_contagem = QLabel()
@@ -165,14 +164,14 @@ class Janela(QMainWindow):
         self.lb_conf = QLabel()
         self.lb_conf.setWordWrap(True)
         bl.addWidget(self.lb_conf, 1)
-        self.bt_continuar = QPushButton("Continuar")
-        self.bt_continuar.setEnabled(False)
-        self.bt_continuar.setToolTip("Avançar e fazer coberturas, repasse e anexos — chega na F3")
+        self.bt_continuar = QPushButton("Continuar (grava)")
+        self.bt_continuar.setToolTip("O robô clica Avançar e faz coberturas, repasse, parcelas e anexos")
         self.bt_pular = QPushButton("Pular lotérica (não grava)")
         self.bt_parar = QPushButton("Parar lote")
         self.bt_retomar = QPushButton("Retomar")
+        self.bt_continuar.clicked.connect(lambda: self._decidir("continuar"))
         self.bt_pular.clicked.connect(lambda: self._decidir("pular"))
-        self.bt_parar.clicked.connect(lambda: self._decidir("parar"))
+        self.bt_parar.clicked.connect(lambda: (self.trab.pedir_parada(), self.barra_conf.setVisible(False)))
         self.bt_retomar.clicked.connect(lambda: self._decidir("retomar"))
         for b in (self.bt_continuar, self.bt_pular, self.bt_retomar, self.bt_parar):
             bl.addWidget(b)
@@ -537,7 +536,7 @@ class Janela(QMainWindow):
         self.bt_executar.setEnabled(False)
         self.bt_sgcor.setEnabled(False)
         self.bt_pausar.setEnabled(True)
-        self.trab.pedir_execucao(sel, produtor)
+        self.trab.pedir_execucao(sel, produtor, self.cb_modo.currentData())
 
     def _decidir(self, acao: str) -> None:
         self.barra_conf.setVisible(False)
@@ -556,7 +555,8 @@ class Janela(QMainWindow):
     def _aguardando(self, caso: Caso, campos: list) -> None:
         self._selecionar(caso.pasta)
         self.lb_conf.setText(f"<b>{caso.nome}</b>: a 1ª tela foi preenchida na janela do robô. Confira (pode corrigir "
-                             f"algum campo lá mesmo) e escolha. Nesta versão nada é gravado no SGCOR.")
+                             f"algum campo lá mesmo). <b>Continuar</b> grava e o robô termina sozinho; "
+                             f"<b>Pular</b> não grava nada.")
         self.bt_continuar.setVisible(True)
         self.bt_pular.setVisible(True)
         self.bt_retomar.setVisible(False)
@@ -591,17 +591,31 @@ class Janela(QMainWindow):
         self._atualizar_rodape()
         self.statusBar().showMessage(resumo, 15000)
         QApplication.alert(self)
+        if getattr(self, "fechar_ao_terminar", False):
+            self.close()
+        else:
+            self.ler()   # lotéricas cadastradas saíram da pasta (foram para _CADASTRADOS)
 
     def closeEvent(self, ev):
         if self.executando:
-            QMessageBox.information(self, "Robô em andamento", "Pare o lote (Parar lote) antes de fechar o app.")
+            r = QMessageBox.question(
+                self, "Lote em andamento",
+                "Há um lote em andamento.\n\nParar e fechar? O robô termina a lotérica que está fazendo "
+                "(para não deixar renovação pela metade no SGCOR) e o app fecha em seguida.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if r == QMessageBox.Yes:
+                self.fechar_ao_terminar = True
+                self.barra_conf.setVisible(False)
+                self.trab.pedir_parada()
+                self.statusBar().showMessage("Terminando a lotérica atual; o app fecha em seguida…")
             ev.ignore()
             return
         self.leitor.cancelar.set()
         self.thread.quit()
         self.thread.wait(15000)
-        # o Playwright só pode ser fechado na thread em que foi aberto: ela mesma fecha o navegador e termina
-        self.trab.finalizar()
+        # o Playwright só pode ser fechado na thread em que foi aberto: ela mesma para o lote (se houver),
+        # fecha o navegador e termina
+        self.trab.finalizar(espera_s=30)
         self.estado.fechar()
         super().closeEvent(ev)
 
@@ -631,8 +645,13 @@ class Confirmacao(QDialog):
         linha = QFrame()
         linha.setFrameShape(QFrame.HLine)
         lay.addWidget(linha)
-        lay.addWidget(QLabel("O robô vai preencher o SGCOR para estas lotéricas. No modo Conferência ele para antes de "
-                             "salvar cada uma."))
+        aviso = QLabel("<b>O robô vai CADASTRAR estas renovações no SGCOR</b> (1ª tela, coberturas, repasse, parcelas e "
+                       "anexos) e mover cada pasta para _CADASTRADOS. Se aparecer pendência, ele para naquela lotérica e "
+                       "segue para a próxima." if "Autom" in modo else
+                       "O robô vai preencher a 1ª tela de cada lotérica e esperar você: <b>Continuar</b> grava e termina "
+                       "sozinho; <b>Pular</b> não grava.")
+        aviso.setWordWrap(True)
+        lay.addWidget(aviso)
         bts = QDialogButtonBox()
         ok = bts.addButton("Confirmar", QDialogButtonBox.AcceptRole)
         cancelar = bts.addButton("Cancelar", QDialogButtonBox.RejectRole)

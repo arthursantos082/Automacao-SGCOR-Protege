@@ -16,8 +16,10 @@ from playwright.sync_api import Dialog, Page, sync_playwright
 
 from ..config import Config
 from ..modelos import Caso
-from .paginas import Campo, LinhaApolice, campos_primeira_tela, escolher_apolice, ler_lista, normalizar_valor, \
-    url_busca, url_lista, url_renovar
+from ..numeros import formatar_dinheiro
+from .paginas import Campo, LinhaApolice, anexos_existentes, campos_primeira_tela, conferir_parcelas, \
+    escolher_apolice, itens_da_proposta, ler_coberturas_item, ler_lista, ler_parcelas, normalizar_valor, \
+    plano_coberturas, url_busca, url_editar_repasse, url_lista, url_renovar
 
 log = logging.getLogger("sgcor_renov.robo")
 
@@ -92,10 +94,14 @@ class Robo:
 
     # ------------------------------------------------------------ sessão
 
-    def ir(self, url: str) -> None:
+    def ir(self, url: str, popup: bool = False) -> None:
+        """Vai para a URL. Popups (popup.php) não têm o menu com 'Sair': nelas, sessão expirada = tela de senha."""
         self.abrir()
         self.page.goto(url, wait_until="load")
-        if not self.logado():
+        if popup:
+            if self.page.locator("input[type='password']").count():
+                raise SessaoExpirada()
+        elif not self.logado():
             raise SessaoExpirada()
         self.esperar_tela()
 
@@ -145,11 +151,22 @@ class Robo:
             pasta = self.prints / date.today().strftime("%Y%m%d")
             pasta.mkdir(parents=True, exist_ok=True)
             arq = pasta / f"{datetime.now():%H%M%S}_{_slug(caso.nome)}_{_slug(etapa)}.png"
-            self.page.screenshot(path=str(arq), full_page=True)
+            # pega os bytes e grava aqui: com path=, o Playwright grava via run_in_executor, que no Python 3.15
+            # dentro do app falha com "'lazy_import' object is not callable"
+            arq.write_bytes(self.page.screenshot(full_page=True))
             return arq
         except Exception as e:  # print não pode derrubar o lote
             log.warning("Não consegui salvar o print (%s): %s", etapa, e)
             return None
+
+    def _guardar_html(self, caso: Caso, etapa: str, html: str) -> None:
+        """Cópia local da página (diagnóstico; mesma retenção de 90 dias dos prints)."""
+        try:
+            pasta = self.prints / date.today().strftime("%Y%m%d")
+            pasta.mkdir(parents=True, exist_ok=True)
+            (pasta / f"{datetime.now():%H%M%S}_{_slug(caso.nome)}_{_slug(etapa)}.html").write_text(html, encoding="utf-8")
+        except Exception as e:
+            log.warning("Não consegui guardar o HTML (%s): %s", etapa, e)
 
     # ------------------------------------------------------------ busca
 
@@ -158,10 +175,16 @@ class Robo:
         linhas: list[LinhaApolice] = []
         for formatado in (True, False):
             self.ir(url_busca(self.cfg, caso.proposta.cnpj, caso.seguradora, formatado))
-            linhas = ler_lista(self.page.content())
+            html = self.page.content()
+            linhas = ler_lista(html)
             if linhas:
                 break
         self.print_(caso, "busca")
+        self._guardar_html(caso, "busca", html)
+        for l in linhas:   # diagnóstico: o que o robô viu na lista
+            log.info("   linha: ID %s · apólice %s · %s a %s · nível %s · %s · %s · %s · CNPJ %s", l.proposta_id,
+                     l.apolice, l.inicio, l.fim, l.nivel or "?", l.tipo or "?", l.status or "?",
+                     (l.companhia or "?")[:14], l.cnpj or "?")
         linha, motivo = escolher_apolice(linhas, caso, self.cfg)
         if motivo:
             raise FalhaRobo(motivo)
@@ -215,3 +238,143 @@ class Robo:
         """Sai da tela sem salvar (Pular). Nada foi gravado: a renovação só nasce no Avançar."""
         if self.page and not self.page.is_closed():
             self.page.goto(url_lista(self.cfg), wait_until="domcontentloaded")
+
+    # ------------------------------------------------------------ F3: depois da 1ª tela
+
+    def _botao(self, texto: str):
+        return self.page.locator("ul.botoesToolbar li").filter(
+            has=self.page.locator(f"span:text-is('{texto}')")).first
+
+    def _swal(self, timeout_ms: int = 8000) -> str | None:
+        """Texto do aviso SweetAlert2 aberto (ou None se nenhum abrir no prazo)."""
+        try:
+            self.page.wait_for_selector(".swal2-popup", state="visible", timeout=timeout_ms)
+        except Exception:
+            return None
+        return (self.page.locator(".swal2-popup").inner_text() or "").strip()
+
+    def _url_completa(self, rel: str) -> str:
+        return rel if rel.startswith("http") else self.cfg.url_sgcor + rel.lstrip("/")
+
+    def avancar(self, caso: Caso) -> str:
+        """Clica Avançar na 1ª tela. A partir daqui a renovação EXISTE no SGCOR. Devolve o propostaId novo."""
+        pg = self.page
+        self._botao("Avançar").click()
+        aviso = self._swal()
+        if aviso is not None:
+            if "vigência" in aviso.lower() and self.cfg.vigencia_inicio in aviso and self.cfg.vigencia_fim in aviso:
+                pg.locator(".swal2-confirm").click()       # "Sim, estão corretas" (Q52)
+                aviso2 = self._swal(4000)                  # p.ex. "Número máximo de parcelas…"
+                if aviso2 is not None:
+                    raise FalhaRobo(f"SGCOR recusou o Avançar: {aviso2}")
+            else:
+                raise FalhaRobo(f"Aviso inesperado ao Avançar: {aviso}")
+        pg.wait_for_url(re.compile(r"op=propostasItens"), timeout=60000)
+        self.esperar_tela()
+        m = re.search(r"propostaId=(\d+)", pg.url)
+        if not m:
+            raise FalhaRobo("Avancei, mas não achei o ID da renovação na tela de Itens")
+        self.print_(caso, "itens")
+        log.info("%s: renovação criada no SGCOR (ID %s).", caso.nome, m.group(1))
+        return m.group(1)
+
+    def coberturas(self, caso: Caso, proposta_id: str, dic) -> None:
+        """Q8/Q51: ajusta só o LMI das coberturas casadas pelo dicionário. Qualquer dúvida → FalhaRobo."""
+        itens = itens_da_proposta(self.page.content(), proposta_id)
+        if len(itens) != 1:
+            raise FalhaRobo(f"A renovação tem {len(itens)} itens; o robô só ajusta coberturas com 1 item")
+        url_lista_cob = self._url_completa(
+            f"popup.php?op=propostasItensCoberturas&form=listar&propostaId={proposta_id}&propostaItemId={itens[0]}")
+        self.ir(url_lista_cob, popup=True)
+        sgcor = ler_coberturas_item(self.page.content())
+        ajustes, pend = plano_coberturas(caso.coberturas, sgcor, dic)
+        self.print_(caso, "coberturas_antes")
+        if pend:
+            raise FalhaRobo("Coberturas: " + " | ".join(pend))
+        for a in ajustes:
+            self.ir(self._url_completa(a.url_alterar), popup=True)
+            campo = self.page.locator("input[name='importancia']").first
+            campo.click()
+            campo.press("Control+A")
+            campo.press("Delete")
+            campo.press_sequentially(formatar_dinheiro(a.para), delay=15)
+            campo.press("Tab")
+            if normalizar_valor(campo.input_value()) != normalizar_valor(formatar_dinheiro(a.para)):
+                raise FalhaRobo(f"LMI de “{a.nome_sgcor}” não aceitou {formatar_dinheiro(a.para)}")
+            with self.page.expect_navigation(timeout=30000):
+                self.page.locator("li#btnSalvar").first.click()
+            self.esperar_tela()
+            log.info("%s: LMI de “%s” %s → %s", caso.nome, a.nome_sgcor, a.de, a.para)
+        # confere a lista de novo
+        self.ir(url_lista_cob, popup=True)
+        depois, pend = plano_coberturas(caso.coberturas, ler_coberturas_item(self.page.content()), dic)
+        self.print_(caso, "coberturas_depois")
+        if depois or pend:
+            raise FalhaRobo("Coberturas não ficaram iguais à proposta depois de salvar")
+
+    def repasse(self, caso: Caso, proposta_id: str, produtor: str) -> None:
+        """Repasse: produtor = consultor, Repasse Sobre = VF, Valor Fixo = bônus, Parcela Única →
+        'Salvar e Gerar Parcelamento' (gera as parcelas)."""
+        # Avançar da tela de Itens copia o repasse da apólice anterior e abre a lista de repasses
+        self.ir(self._url_completa(
+            f"?op=propostas&form=getRepassesPropostaOriginal&cadastro=true&propostaId={proposta_id}"))
+        urls = [u for u in url_editar_repasse(self.page.content()) if f"propostaId={proposta_id}" in u]
+        if len(urls) != 1:
+            raise FalhaRobo(f"A renovação tem {len(urls)} repasses; esperado 1")
+        self.ir(self._url_completa(urls[0]))     # = lápis + "Sim" no aviso de excluir parcelas
+        pg = self.page
+        pg.locator("#produtorId").select_option(label=produtor)
+        pg.locator("#repasseSobre").select_option("VF")
+        valor = pg.locator("#valorFixo")
+        valor.wait_for(state="visible")
+        valor.click()
+        valor.press("Control+A")
+        valor.press("Delete")
+        valor.press_sequentially(formatar_dinheiro(caso.bonus), delay=15)
+        valor.press("Tab")
+        pg.locator("#radio_definirParcelasVF_0").check()   # Parcela Única
+        if not pg.locator("#repasseForma").input_value():
+            raise FalhaRobo("Forma de Repasse veio vazia no SGCOR")
+        if normalizar_valor(valor.input_value()) != normalizar_valor(formatar_dinheiro(caso.bonus)):
+            raise FalhaRobo(f"Valor Fixo não aceitou {formatar_dinheiro(caso.bonus)}")
+        self.print_(caso, "repasse_preenchido")
+        with pg.expect_navigation(timeout=60000):
+            self._botao("Salvar e Gerar Parcelamento").click()
+        self.esperar_tela()
+        self.print_(caso, "repasse_salvo")
+        log.info("%s: repasse salvo (%s, valor fixo R$ %s) e parcelamento gerado.", caso.nome, produtor,
+                 formatar_dinheiro(caso.bonus))
+
+    def parcelas(self, caso: Caso, proposta_id: str) -> None:
+        self.ir(self._url_completa(f"?op=parcelasCompletas&form=listar&propostaId={proposta_id}&cadastro=true"))
+        ps = ler_parcelas(self.page.content())
+        self.print_(caso, "parcelas")
+        erros = conferir_parcelas(ps, caso, self.cfg)
+        if erros:
+            raise FalhaRobo("Parcelas: " + " | ".join(erros))
+        log.info("%s: %d parcelas conferidas (1º vencimento %s).", caso.nome, len(ps), ps[0].vencimento)
+
+    def anexos(self, caso: Caso, proposta_id: str) -> None:
+        """ACORDO + PROPOSTA (Q14/Q16): só Descrição + arquivo; não reenvia o que já existe."""
+        lista = self._url_completa(f"popup.php?op=anexos&form=listar&propostaId={proposta_id}")
+        self.ir(lista, popup=True)
+        ja = anexos_existentes(self.page.content())
+        arquivos = [("ACORDO", caso.acordo), ("PROPOSTA", caso.proposta_escolhida or caso.propostas[0])]
+        for descricao, arq in arquivos:
+            if descricao in ja:
+                log.info("%s: anexo %s já existe — não reenviado.", caso.nome, descricao)
+                continue
+            if arq.stat().st_size > 10 * 1024 * 1024:
+                raise FalhaRobo(f"{arq.name} tem mais de 10 MB (limite do SGCOR)")
+            self.ir(self._url_completa(f"popup.php?op=anexos&form=cadastrar&propostaId={proposta_id}"), popup=True)
+            self.page.locator("input[name='descricao']").first.fill(descricao)
+            self.page.locator("input[type='file'][name='arquivo']").first.set_input_files(str(arq))
+            with self.page.expect_navigation(timeout=60000):
+                self.page.locator("li#btnSalvar").first.click()
+            self.esperar_tela()
+            log.info("%s: anexo %s enviado (%s).", caso.nome, descricao, arq.name)
+        self.ir(lista, popup=True)
+        faltando = {"ACORDO", "PROPOSTA"} - anexos_existentes(self.page.content())
+        self.print_(caso, "anexos")
+        if faltando:
+            raise FalhaRobo(f"Anexo(s) não apareceram na lista: {', '.join(sorted(faltando))}")

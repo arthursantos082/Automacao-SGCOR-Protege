@@ -1,0 +1,90 @@
+"""F3: leitura das telas depois do Avançar (HTML sintético imitando o SGCOR) e decisões do robô."""
+from decimal import Decimal as D
+from pathlib import Path
+
+from sgcor_renov.coberturas import Cobertura, Dicionario
+from sgcor_renov.config import carregar
+from sgcor_renov.modelos import Caso
+from sgcor_renov.robo.paginas import (CoberturaSgcor, Parcela, anexos_existentes, conferir_parcelas, itens_da_proposta,
+                                      ler_coberturas_item, ler_parcelas, plano_coberturas, url_editar_repasse)
+
+CFG = carregar()
+DIC = Dicionario.carregar()
+
+
+def _grid(linhas: str) -> str:
+    return f'<table id="tabled_grid">{linhas}</table>'
+
+
+def test_coberturas_do_item():
+    html = _grid("""
+<tr><td><a href="https://x/popup.php?op=propostasItensCoberturas&amp;form=alterar&amp;propostaItemCoberturaId=1&amp;propostaId=9">
+<i title="Alterar"></i></a></td><td>10</td>
+<td title="GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO">GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIM...</td>
+<td>30.000,00</td><td>0,00</td><td>1</td><td>0,00</td></tr>""")
+    [c] = ler_coberturas_item(html)
+    assert (c.nome, c.lmi) == ("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", D("30000.00"))
+    assert "propostaItemCoberturaId=1&propostaId=9" in c.url_alterar   # &amp; desfeito
+
+
+def _cob(nome, lmi, chave):
+    return (Cobertura(nome, D(lmi)), chave)
+
+
+def _sg(nome, lmi):
+    return CoberturaSgcor(nome, D(lmi), f"popup.php?alterar={nome[:5]}")
+
+
+def test_plano_ajusta_so_o_que_mudou():
+    proposta = [_cob("Valores No Interior Do Estabelecimento - Lotérica", "30000", "valores_interior"),
+                _cob("Valores Em Trânsito - Lotérica", "20000", "valores_transito"),
+                _cob("Incêndio, Raio, Explosão, Implosão, Fumaça", "60000", "incendio")]
+    sgcor = [_sg("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", "51460"),
+             _sg("GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO", "20000"),
+             _sg("INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO, FUMAÇA E QUEDA DE AERONAVES", "60000"),
+             _sg("RESPONSABILIDADE CIVIL", "0")]                                    # LMI 0 sem par: ignora (Q51)
+    ajustes, pend = plano_coberturas(proposta, sgcor, DIC)
+    assert pend == []
+    assert [(a.nome_sgcor, a.de, a.para) for a in ajustes] == [
+        ("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", D("51460"), D("30000"))]
+
+
+def test_plano_pendencias():
+    proposta = [_cob("Danos Elétricos", "5000", "danos_eletricos"), _cob("Coisa nova", "1", None)]
+    sgcor = [_sg("ROUBO E FURTO MEDIANTE ARROMBAMENTO", "5000")]                  # LMI > 0 sumiu da proposta
+    _, pend = plano_coberturas(proposta, sgcor, DIC)
+    assert any("Cobertura nova na proposta" in p and "Danos" in p for p in pend)
+    assert any("sem equivalência" in p for p in pend)
+    assert any("não está na proposta nova" in p and "ROUBO" in p for p in pend)
+
+
+def test_parcelas_com_tabelas_aninhadas_e_conferencia():
+    linha = lambda n, v, d: (f'<tr><td><div><table id="tabled_grid"><tr><td>mais</td></tr></table></div></td>'
+                             f'<td><span>{n}</span></td><td><span></span></td><td><span>{v}</span></td>'
+                             f'<td><span>{d}</span></td><td><span>341,03</span></td></tr>')
+    html = _grid("".join(linha(i, "366,19", f"10/{i:02d}/2027") for i in range(1, 7))
+                 + linha(7, "366,19", "10/07/2027") + "<tr><td></td><td>2.563,33</td></tr>")
+    ps = ler_parcelas(html)
+    assert [p.numero for p in ps] == [1, 2, 3, 4, 5, 6, 7]
+    caso = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", parcelas=7, premio_total=D("2563.33"))
+    assert conferir_parcelas(ps, caso, CFG) == []
+    caso.parcelas = 6
+    assert any("7 parcela" in e for e in conferir_parcelas(ps, caso, CFG))
+
+
+def test_conferir_parcelas_vencimento_e_soma():
+    caso = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", parcelas=2, premio_total=D("100.00"))
+    erros = conferir_parcelas([Parcela(1, D("50"), "10/02/2027"), Parcela(2, D("49"), "10/03/2027")], caso, CFG)
+    assert any("1º vencimento" in e for e in erros) and any("Soma" in e for e in erros)
+
+
+def test_itens_repasse_e_anexos():
+    assert itens_da_proposta("popup.php?op=propostasItensCoberturas&amp;form=listar&amp;propostaId=9"
+                             "&amp;propostaItemId=61123", "9") == ["61123"]
+    html = ("confirmaSwal('Para sua comodidade…', '?op=repasses&amp;form=alterar&amp;propostaRepasseId=71676"
+            "&amp;propostaId=9&amp;cadastro=true&amp;parcelas=true')")
+    assert url_editar_repasse(html) == ["?op=repasses&form=alterar&propostaRepasseId=71676&propostaId=9"
+                                        "&cadastro=true&parcelas=true"]
+    anexos = _grid('<tr><td><a href="popup.php?op=anexos&amp;form=alterar&amp;anexoId=1"></a></td><td></td>'
+                   '<td>ACORDO</td><td>acordo.pdf</td></tr>')
+    assert anexos_existentes(anexos) == {"ACORDO"}

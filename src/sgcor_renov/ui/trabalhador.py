@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from ..coberturas import Dicionario
 from ..config import Config
 from ..estado import pasta_dados
 from ..modelos import Caso
@@ -39,6 +40,17 @@ def limpar_antigos(raiz: Path, dias: int = RETENCAO_DIAS) -> None:
                 shutil.rmtree(p) if p.is_dir() else p.unlink()
         except OSError:
             pass
+
+
+def mover_para_cadastrados(pasta: Path) -> Path:
+    """Q10/Q21: só depois de tudo gravado. FECHADOS X/<lotérica> → FECHADOS X/_CADASTRADOS/<lotérica>."""
+    destino_dir = pasta.parent / "_CADASTRADOS"
+    destino_dir.mkdir(exist_ok=True)
+    destino = destino_dir / pasta.name
+    if destino.exists():
+        destino = destino_dir / f"{pasta.name} ({datetime.now():%Y%m%d-%H%M%S})"
+    shutil.move(str(pasta), str(destino))
+    return destino
 
 
 class _ParaTela(logging.Handler):
@@ -81,6 +93,7 @@ class Trabalhador(QObject):
         self.decisoes: queue.Queue[str] = queue.Queue()
         self.comandos: queue.Queue[tuple] = queue.Queue()
         self.pausa = threading.Event()        # setado = pausar ao terminar a lotérica atual (Q47)
+        self.parar_lote = threading.Event()   # setado = não começar a próxima lotérica
         self.robo: Robo | None = None
         self._thread = threading.Thread(target=self._laco, name="robo-sgcor", daemon=True)
         self._thread.start()
@@ -90,11 +103,17 @@ class Trabalhador(QObject):
     def pedir_verificacao(self) -> None:
         self.comandos.put(("verificar",))
 
-    def pedir_execucao(self, casos: list[Caso], produtor: str) -> None:
-        self.comandos.put(("executar", casos, produtor))
+    def pedir_execucao(self, casos: list[Caso], produtor: str, modo: str = "automatico") -> None:
+        self.comandos.put(("executar", casos, produtor, modo))
 
     def decidir(self, acao: str) -> None:       # "continuar" | "pular" | "parar" | "retomar"
         self.decisoes.put(acao)
+
+    def pedir_parada(self) -> None:
+        """Termina a lotérica em andamento e para (nunca interrompe no meio de uma gravação)."""
+        self.parar_lote.set()
+        self.pausa.clear()
+        self.decisoes.put("parar")
 
     def finalizar(self, espera_s: float = 10) -> None:
         """Fecha o navegador do robô (na thread dele) e encerra a thread."""
@@ -146,15 +165,18 @@ class Trabalhador(QObject):
             r.fechar()          # nunca reaproveitar um navegador em estado desconhecido
             self.conexao.emit(False, [])
 
-    def executar(self, casos: list[Caso], produtor: str) -> None:
+    def executar(self, casos: list[Caso], produtor: str, modo: str = "automatico") -> None:
         r = self._robo()
         while not self.decisoes.empty():
             self.decisoes.get_nowait()
-        puladas = pendentes = 0
+        self.parar_lote.clear()
+        dic = Dicionario.carregar()
+        cadastradas = puladas = pendentes = metade = 0
         parar = False
-        log.info("Lote iniciado: %d lotérica(s), modo Conferência, produtor %s.", len(casos), produtor)
+        log.info("Lote iniciado: %d lotérica(s), modo %s, produtor %s.", len(casos),
+                 "Automático" if modo == "automatico" else "Conferência", produtor)
         for caso in casos:
-            if parar:
+            if parar or self.parar_lote.is_set():
                 break
             if self.pausa.is_set():
                 self.pausado.emit(True)
@@ -165,22 +187,51 @@ class Trabalhador(QObject):
                 self.pausado.emit(False)
                 if d == "parar":
                     break
+            proposta_id = None    # ID da renovação no SGCOR depois do Avançar
             while True:   # repete a mesma lotérica depois de um novo login
                 try:
-                    self.situacao.emit(caso.pasta, "Buscando no SGCOR…")
-                    linha = r.buscar(caso)
-                    self.situacao.emit(caso.pasta, "Preenchendo a 1ª tela…")
-                    campos = r.preencher_renovacao(caso, linha)
-                    self.situacao.emit(caso.pasta, "Aguardando sua conferência")
-                    self.aguardando.emit(caso, campos)
-                    acao = self.decisoes.get()
-                    self._registrar_correcoes(caso, campos)
-                    if acao == "continuar":   # F3: Avançar → coberturas → repasse → parcelas → anexos
-                        log.info("%s: Continuar ainda não disponível nesta versão (F3); nada foi gravado.", caso.nome)
-                    r.descartar()
-                    self.situacao.emit(caso.pasta, "Conferida — nada gravado (F2)")
-                    puladas += 1
-                    parar = acao == "parar"
+                    if proposta_id is None:
+                        self.situacao.emit(caso.pasta, "Buscando no SGCOR…")
+                        linha = r.buscar(caso)
+                        self.situacao.emit(caso.pasta, "Preenchendo a 1ª tela…")
+                        campos = r.preencher_renovacao(caso, linha)
+                        if modo == "conferencia":
+                            self.situacao.emit(caso.pasta, "Aguardando sua conferência")
+                            self.aguardando.emit(caso, campos)
+                            acao = self.decisoes.get()
+                            self._registrar_correcoes(caso, campos)
+                            if acao != "continuar":
+                                r.descartar()
+                                self.situacao.emit(caso.pasta, "Pulada — nada gravado")
+                                puladas += 1
+                                parar = acao == "parar"
+                                break
+                        self.situacao.emit(caso.pasta, "Avançando (a renovação passa a existir no SGCOR)…")
+                        proposta_id = r.avancar(caso)
+                        etapa = "coberturas"
+                    else:
+                        # voltou de um login no meio: retoma a etapa em que parou, sem criar outra renovação
+                        log.info("%s: retomando a renovação ID %s na etapa %s.", caso.nome, proposta_id, etapa)
+                    if etapa == "coberturas":
+                        self.situacao.emit(caso.pasta, f"ID {proposta_id}: coberturas…")
+                        r.coberturas(caso, proposta_id, dic)
+                        etapa = "repasse"
+                    if etapa == "repasse":
+                        self.situacao.emit(caso.pasta, f"ID {proposta_id}: repasse…")
+                        r.repasse(caso, proposta_id, produtor)
+                        etapa = "parcelas"
+                    if etapa == "parcelas":
+                        self.situacao.emit(caso.pasta, f"ID {proposta_id}: parcelas…")
+                        r.parcelas(caso, proposta_id)
+                        etapa = "anexos"
+                    if etapa == "anexos":
+                        self.situacao.emit(caso.pasta, f"ID {proposta_id}: anexos…")
+                        r.anexos(caso, proposta_id)
+                    destino = mover_para_cadastrados(caso.pasta)
+                    log.info("%s: CADASTRADA no SGCOR (ID %s). Pasta movida para %s.", caso.nome, proposta_id,
+                             destino.parent.name)
+                    self.situacao.emit(caso.pasta, f"Cadastrada no SGCOR (ID {proposta_id})")
+                    cadastradas += 1
                     break
                 except SessaoExpirada:
                     log.warning("O SGCOR pediu login. Faça o login na janela do robô e clique em Retomar.")
@@ -188,22 +239,24 @@ class Trabalhador(QObject):
                     if self.decisoes.get() == "parar":
                         parar = True
                         break
-                except FalhaRobo as e:
-                    r.print_(caso, "falha")
-                    log.warning("%s: %s", caso.nome, e)
-                    self.situacao.emit(caso.pasta, f"Pendência SGCOR: {e}")
-                    pendentes += 1
-                    self._sair_sem_salvar()
-                    break
                 except Exception as e:
+                    falha = isinstance(e, FalhaRobo)
+                    msg = str(e) if falha else f"erro inesperado: {str(e).splitlines()[0] if str(e) else e!r}"
                     if r.page:
-                        r.print_(caso, "erro")
-                    log.error("%s: erro inesperado: %s", caso.nome, e)
-                    self.situacao.emit(caso.pasta, f"Erro: {e}")
-                    pendentes += 1
-                    self._sair_sem_salvar()
+                        r.print_(caso, "falha" if falha else "erro")
+                    if proposta_id:
+                        # Q12: a renovação já existe — não mexe mais; o consultor termina no SGCOR
+                        log.warning("%s: PELA METADE (ID %s, etapa %s): %s", caso.nome, proposta_id, etapa, msg)
+                        self.situacao.emit(caso.pasta, f"Pela metade (ID {proposta_id}) — terminar no SGCOR: {msg}")
+                        metade += 1
+                    else:
+                        log.warning("%s: %s", caso.nome, msg)
+                        self.situacao.emit(caso.pasta, f"Pendência SGCOR: {msg}")
+                        pendentes += 1
+                        self._sair_sem_salvar()
                     break
-        resumo = f"Lote encerrado: {puladas} conferida(s) sem gravar, {pendentes} com pendência no SGCOR."
+        resumo = (f"Lote encerrado: {cadastradas} cadastrada(s), {metade} pela metade (terminar no SGCOR), "
+                  f"{pendentes} com pendência antes de gravar, {puladas} pulada(s).")
         log.info(resumo)
         self.fim_lote.emit(resumo)
 
