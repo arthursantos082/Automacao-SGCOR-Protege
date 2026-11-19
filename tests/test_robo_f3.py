@@ -43,19 +43,21 @@ def test_plano_ajusta_so_o_que_mudou():
              _sg("GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO", "20000"),
              _sg("INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO, FUMAÇA E QUEDA DE AERONAVES", "60000"),
              _sg("RESPONSABILIDADE CIVIL", "0")]                                    # LMI 0 sem par: ignora (Q51)
-    ajustes, pend = plano_coberturas(proposta, sgcor, DIC)
-    assert pend == []
+    ajustes, pend, avisos = plano_coberturas(proposta, sgcor, DIC)
+    assert pend == [] and avisos == []
     assert [(a.nome_sgcor, a.de, a.para) for a in ajustes] == [
         ("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", D("51460"), D("30000"))]
 
 
-def test_plano_pendencias():
+def test_plano_pendencias_e_avisos():
     proposta = [_cob("Danos Elétricos", "5000", "danos_eletricos"), _cob("Coisa nova", "1", None)]
     sgcor = [_sg("ROUBO E FURTO MEDIANTE ARROMBAMENTO", "5000")]                  # LMI > 0 sumiu da proposta
-    _, pend = plano_coberturas(proposta, sgcor, DIC)
-    assert any("Cobertura nova na proposta" in p and "Danos" in p for p in pend)
-    assert any("sem equivalência" in p for p in pend)
-    assert any("não está na proposta nova" in p and "ROUBO" in p for p in pend)
+    ajustes, pend, avisos = plano_coberturas(proposta, sgcor, DIC)
+    assert ajustes == []
+    assert pend == ["Cobertura da proposta sem equivalência: “Coisa nova”"]          # só isso para o robô
+    # Q57: nova na proposta → ignora; sumiu da proposta → fica como está
+    assert any("não existe no item do SGCOR, ignorada" in a and "Danos" in a for a in avisos)
+    assert any("não está na proposta nova, mantida" in a and "ROUBO" in a for a in avisos)
 
 
 def test_parcelas_com_tabelas_aninhadas_e_conferencia():

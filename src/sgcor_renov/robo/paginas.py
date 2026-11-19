@@ -289,10 +289,13 @@ class Ajuste:
     url_alterar: str
 
 
-def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic) -> tuple[list[Ajuste], list[str]]:
-    """Q8/Q51: casa por tipo (dicionário). Devolve (ajustes de LMI a fazer, pendências).
+def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic
+                     ) -> tuple[list[Ajuste], list[str], list[str]]:
+    """Q8/Q57: casa por tipo (dicionário). Devolve (ajustes de LMI a fazer, pendências, avisos).
+    Cobertura nova na proposta → ignora; cobertura do item que sumiu da proposta → deixa como está (avisos).
     proposta = [(Cobertura, chave)] já classificada na F1."""
     pend: list[str] = []
+    avisos: list[str] = []
     por_tipo: dict[str, list[CoberturaSgcor]] = {}
     for c in sgcor:
         t = dic.tipo_de(c.nome, "sgcor")
@@ -306,7 +309,7 @@ def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic) ->
             continue
         alvos = por_tipo.get(chave, [])
         if not alvos:
-            pend.append(f"Cobertura nova na proposta (não existe no item do SGCOR): “{cob.nome}” R$ {cob.lmi}")
+            avisos.append(f"cobertura da proposta não existe no item do SGCOR, ignorada: “{cob.nome}” R$ {cob.lmi}")
         elif len(alvos) > 1:
             pend.append(f"Mais de uma cobertura do mesmo tipo no item do SGCOR para “{cob.nome}”: "
                         + "; ".join(a.nome for a in alvos))
@@ -315,10 +318,10 @@ def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic) ->
             usados.add(id(alvo))
             if alvo.lmi != cob.lmi:
                 ajustes.append(Ajuste(alvo.nome, alvo.lmi, cob.lmi, alvo.url_alterar))
-    for c in sgcor:   # Q51: cobertura do item sem par na proposta → LMI 0 ignora; LMI > 0 pendência
+    for c in sgcor:   # Q57: cobertura do item sem par na proposta → fica como está
         if id(c) not in usados and c.lmi > 0:
-            pend.append(f"Cobertura do item do SGCOR não está na proposta nova (LMI R$ {c.lmi}): “{c.nome}”")
-    return ajustes, pend
+            avisos.append(f"cobertura do item do SGCOR não está na proposta nova, mantida (LMI R$ {c.lmi}): “{c.nome}”")
+    return ajustes, pend, avisos
 
 
 def url_editar_repasse(html: str) -> list[str]:
