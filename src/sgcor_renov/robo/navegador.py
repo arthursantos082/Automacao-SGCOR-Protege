@@ -285,7 +285,11 @@ class Robo:
         return m.group(1)
 
     def coberturas(self, caso: Caso, proposta_id: str, dic) -> None:
-        """Q8/Q51: ajusta só o LMI das coberturas casadas pelo dicionário. Qualquer dúvida → FalhaRobo."""
+        """Q8/Q57: ajusta só o LMI das coberturas casadas pelo dicionário. Qualquer dúvida → FalhaRobo."""
+        if not ("op=propostasItens" in self.page.url and f"propostaId={proposta_id}" in self.page.url):
+            # retomada: a tela atual não é a de Itens desta renovação (logo depois do Avançar já é)
+            self.ir(self._url_completa(f"?op=propostasItens&form=listar&propostaId={proposta_id}&cadastro=true"))
+            self.esperar_tela()
         itens = itens_da_proposta(self.page.content(), proposta_id)
         if len(itens) != 1:
             raise FalhaRobo(f"A renovação tem {len(itens)} itens; o robô só ajusta coberturas com 1 item")
