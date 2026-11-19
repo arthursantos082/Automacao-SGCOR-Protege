@@ -21,7 +21,7 @@ from PySide6.QtCore import QObject, Signal
 
 from ..coberturas import Dicionario
 from ..config import Config
-from ..estado import pasta_dados
+from ..estado import Estado, pasta_dados
 from ..modelos import Caso
 from ..robo.navegador import FalhaRobo, Robo, SessaoExpirada
 
@@ -134,6 +134,13 @@ class Trabalhador(QObject):
 
     # ---------------------------------------------------------------- na thread do robô
 
+    @property
+    def estado(self) -> Estado:
+        """Conexão própria da thread do robô com o estado local (SQLite não compartilha conexão entre threads)."""
+        if getattr(self, "_estado", None) is None:
+            self._estado = Estado()
+        return self._estado
+
     def _robo(self) -> Robo:
         if self.robo is None:
             configurar_log(self.linha_log)
@@ -188,6 +195,12 @@ class Trabalhador(QObject):
                 if d == "parar":
                     break
             proposta_id = None    # ID da renovação no SGCOR depois do Avançar
+            etapa = "coberturas"
+            retomar = self.estado.pela_metade(caso.pasta)
+            if retomar:
+                # renovação já criada numa execução anterior que parou no meio: continua da etapa, sem criar outra
+                proposta_id, etapa = retomar
+                log.info("%s: retomando a renovação ID %s a partir da etapa %s.", caso.nome, proposta_id, etapa)
             while True:   # repete a mesma lotérica depois de um novo login
                 try:
                     if proposta_id is None:
@@ -210,8 +223,8 @@ class Trabalhador(QObject):
                         proposta_id = r.avancar(caso)
                         etapa = "coberturas"
                     else:
-                        # voltou de um login no meio: retoma a etapa em que parou, sem criar outra renovação
-                        log.info("%s: retomando a renovação ID %s na etapa %s.", caso.nome, proposta_id, etapa)
+                        # retomada (login no meio ou execução anterior): segue da etapa, sem criar outra renovação
+                        pass
                     if etapa == "coberturas":
                         self.situacao.emit(caso.pasta, f"ID {proposta_id}: coberturas…")
                         r.coberturas(caso, proposta_id, dic)
@@ -227,6 +240,7 @@ class Trabalhador(QObject):
                     if etapa == "anexos":
                         self.situacao.emit(caso.pasta, f"ID {proposta_id}: anexos…")
                         r.anexos(caso, proposta_id)
+                    self.estado.limpar_pela_metade(caso.pasta)
                     destino = mover_para_cadastrados(caso.pasta)
                     log.info("%s: CADASTRADA no SGCOR (ID %s). Pasta movida para %s.", caso.nome, proposta_id,
                              destino.parent.name)
@@ -245,9 +259,11 @@ class Trabalhador(QObject):
                     if r.page:
                         r.print_(caso, "falha" if falha else "erro")
                     if proposta_id:
-                        # Q12: a renovação já existe — não mexe mais; o consultor termina no SGCOR
-                        log.warning("%s: PELA METADE (ID %s, etapa %s): %s", caso.nome, proposta_id, etapa, msg)
-                        self.situacao.emit(caso.pasta, f"Pela metade (ID {proposta_id}) — terminar no SGCOR: {msg}")
+                        # Q12: a renovação já existe — não mexe mais agora; fica guardada para retomar desta etapa
+                        self.estado.marcar_pela_metade(caso.pasta, proposta_id, etapa, msg)
+                        log.warning("%s: PELA METADE (ID %s, etapa %s): %s — execute de novo para retomar desta "
+                                    "etapa, ou termine no SGCOR.", caso.nome, proposta_id, etapa, msg)
+                        self.situacao.emit(caso.pasta, f"Pela metade (ID {proposta_id}, {etapa}): {msg}")
                         metade += 1
                     else:
                         log.warning("%s: %s", caso.nome, msg)

@@ -297,14 +297,13 @@ class Robo:
         self.print_(caso, "coberturas_antes")
         if pend:
             raise FalhaRobo("Coberturas: " + " | ".join(pend))
+        log.info("%s: coberturas do item: %d no SGCOR, %d da proposta; %d LMI a ajustar.", caso.nome, len(sgcor),
+                 len(caso.coberturas), len(ajustes))
         for a in ajustes:
             self.ir(self._url_completa(a.url_alterar), popup=True)
             campo = self.page.locator("input[name='importancia']").first
-            campo.click()
-            campo.press("Control+A")
-            campo.press("Delete")
-            campo.press_sequentially(formatar_dinheiro(a.para), delay=15)
-            campo.press("Tab")
+            campo.fill(formatar_dinheiro(a.para))      # direto, no formato do SGCOR ("30.000,00"), como no Valor Fixo
+            campo.dispatch_event("change")
             if normalizar_valor(campo.input_value()) != normalizar_valor(formatar_dinheiro(a.para)):
                 raise FalhaRobo(f"LMI de “{a.nome_sgcor}” não aceitou {formatar_dinheiro(a.para)}")
             with self.page.expect_navigation(timeout=30000):
@@ -321,23 +320,33 @@ class Robo:
     def repasse(self, caso: Caso, proposta_id: str, produtor: str) -> None:
         """Repasse: produtor = consultor, Repasse Sobre = VF, Valor Fixo = bônus, Parcela Única →
         'Salvar e Gerar Parcelamento' (gera as parcelas)."""
-        # Avançar da tela de Itens copia o repasse da apólice anterior e abre a lista de repasses
-        self.ir(self._url_completa(
-            f"?op=propostas&form=getRepassesPropostaOriginal&cadastro=true&propostaId={proposta_id}"))
+        # olha a lista primeiro: numa retomada o repasse já foi copiado, e copiar de novo poderia duplicá-lo
+        self.ir(self._url_completa(f"?op=repasses&form=listar&propostaId={proposta_id}&cadastro=true"))
         urls = [u for u in url_editar_repasse(self.page.content()) if f"propostaId={proposta_id}" in u]
+        if not urls:
+            # = Avançar da tela de Itens: copia o repasse da apólice anterior e abre a lista de repasses
+            self.ir(self._url_completa(
+                f"?op=propostas&form=getRepassesPropostaOriginal&cadastro=true&propostaId={proposta_id}"))
+            urls = [u for u in url_editar_repasse(self.page.content()) if f"propostaId={proposta_id}" in u]
         if len(urls) != 1:
             raise FalhaRobo(f"A renovação tem {len(urls)} repasses; esperado 1")
         self.ir(self._url_completa(urls[0]))     # = lápis + "Sim" no aviso de excluir parcelas
         pg = self.page
-        pg.locator("#produtorId").select_option(label=produtor)
-        pg.locator("#repasseSobre").select_option("VF")
+        atual = (pg.locator("#produtorId option:checked").text_content() or "").strip()
+        if atual != produtor:
+            # trocar o produtor dispara getInfoProdutor(): um AJAX que LIMPA o repasse e recarrega os padrões dele;
+            # só depois disso dá para preencher o resto
+            pg.locator("#produtorId").select_option(label=produtor)
+            self.esperar_tela()
+            log.info("%s: produtor do repasse trocado de “%s” para “%s”.", caso.nome, atual, produtor)
+        if pg.locator("#repasseSobre").input_value() != "VF":
+            pg.locator("#repasseSobre").select_option("VF")
         valor = pg.locator("#valorFixo")
         valor.wait_for(state="visible")
-        valor.click()
-        valor.press("Control+A")
-        valor.press("Delete")
-        valor.press_sequentially(formatar_dinheiro(caso.bonus), delay=15)
-        valor.press("Tab")
+        # a máscara do SGCOR (MascaraValorMonetario) reage a cada tecla e brigava com a digitação;
+        # o valor vai direto, no mesmo formato que o próprio SGCOR usa ("40,00")
+        valor.fill(formatar_dinheiro(caso.bonus))
+        valor.dispatch_event("change")
         pg.locator("#radio_definirParcelasVF_0").check()   # Parcela Única
         if not pg.locator("#repasseForma").input_value():
             raise FalhaRobo("Forma de Repasse veio vazia no SGCOR")
