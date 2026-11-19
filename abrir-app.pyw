@@ -1,4 +1,4 @@
-"""Abre o app de renovações sem janela de console (alvo do atalho da área de trabalho; o .exe vem na F4)."""
+"""Abre o AutoCOR sem janela de console (alvo do atalho da área de trabalho; o .exe vem na F4)."""
 import sys
 from pathlib import Path
 

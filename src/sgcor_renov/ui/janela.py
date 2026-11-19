@@ -25,14 +25,19 @@ from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
 from .tabela import FORMAS, FiltroCasos, ModeloCasos
 from .trabalhador import Trabalhador
+from .tutorial import Tutorial
 
-ORG, APP = "GrupoProtege", "SGCOR-Renovacoes"
+NOME = "AutoCOR"
+ORG, APP = "GrupoProtege", "SGCOR-Renovacoes"   # identificadores internos (registro/estado): não mudam com o nome
 RECURSOS = Path(__file__).parent / "recursos"
 AZUL = "#12284F"          # azul-marinho da logo do Grupo Protege
 ESTILO = f"""
 #cabecalho {{ background: {AZUL}; }}
 #cabecalho QLabel {{ color: white; }}
 #titulo {{ font-size: 17px; font-weight: 600; }}
+#cabecalho QPushButton {{ color: white; background: transparent; border: 1px solid #5b74a3; border-radius: 4px;
+                          padding: 4px 12px; }}
+#cabecalho QPushButton:hover {{ background: #1d3a6e; }}
 QPushButton#primario {{ background: {AZUL}; color: white; border: 1px solid #2c4c86; border-radius: 4px;
                         padding: 6px 22px; font-weight: 600; }}
 QPushButton#primario:hover {{ background: #1d3a6e; }}
@@ -51,7 +56,7 @@ class Janela(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Renovações Lotéricas → SGCOR")
+        self.setWindowTitle(f"{NOME} — renovações lotéricas → SGCOR")
         self.resize(1400, 820)
         self.cfg = carregar()
         self.estado = Estado()
@@ -65,7 +70,7 @@ class Janela(QMainWindow):
         self._iniciar_leitor()
         self._iniciar_robo()
         self._iniciar_observador()
-        QTimer.singleShot(0, self.ler)
+        QTimer.singleShot(0, self._inicio)
 
     # ------------------------------------------------------------------ montagem
 
@@ -84,9 +89,16 @@ class Janela(QMainWindow):
         logo.setPixmap(QPixmap(str(RECURSOS / "logo-protege.png")).scaledToHeight(44, Qt.SmoothTransformation))
         cl.addWidget(logo)
         cl.addStretch(1)
-        titulo = QLabel("Renovações Lotéricas → SGCOR")
+        titulo = QLabel(f"{NOME}<br><span style='font-size: 12px; font-weight: 400;'>renovações lotéricas → SGCOR"
+                        f"</span>")
         titulo.setObjectName("titulo")
+        titulo.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         cl.addWidget(titulo)
+        cl.addSpacing(16)
+        bt_tutorial = QPushButton("Como usar")
+        bt_tutorial.setToolTip("Abre o tutorial: como organizar as pastas e usar o robô")
+        bt_tutorial.clicked.connect(self.mostrar_tutorial)
+        cl.addWidget(bt_tutorial)
         externo.addWidget(cabecalho)
 
         corpo = QWidget()
@@ -228,6 +240,17 @@ class Janela(QMainWindow):
         self.progresso.setMaximumWidth(260)
         self.progresso.setVisible(False)
         self.statusBar().addPermanentWidget(self.progresso)
+
+    def _inicio(self) -> None:
+        """Ao abrir: tutorial primeiro (a menos que o consultor tenha desligado), depois a leitura das pastas."""
+        if not self.settings.value("tutorial_ocultar", False, type=bool):
+            self.mostrar_tutorial()
+        self.ler()
+
+    def mostrar_tutorial(self) -> None:
+        dlg = Tutorial(self, RECURSOS / "logo-protege.png", self.settings.value("tutorial_ocultar", False, type=bool))
+        dlg.exec()
+        self.settings.setValue("tutorial_ocultar", dlg.ck_ocultar.isChecked())
 
     def _campo_pasta(self, grade: QGridLayout, linha: int, rotulo: str, chave: str, padrao: Path) -> QLineEdit:
         grade.addWidget(QLabel(rotulo), linha, 0)
@@ -714,7 +737,7 @@ def main() -> int:
     if sys.platform == "win32":
         # ícone próprio na barra de tarefas (senão o Windows agrupa com o ícone do Python)
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrupoProtege.SGCORRenovacoes")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrupoProtege.AutoCOR")
     app = QApplication(sys.argv)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
