@@ -11,7 +11,8 @@ from sgcor_renov.robo.paginas import LinhaApolice, campos_primeira_tela, escolhe
 CFG = carregar()
 
 
-def _linha_html(pid, apolice, cnpj, ramo, cia, ini, fim, tipo="Renovação", status="Vigente", nome="LOTERICA EXEMPLO"):
+def _linha_html(pid, apolice, cnpj, ramo, cia, ini, fim, tipo="Renovação", status="Vigente", nome="LOTERICA EXEMPLO",
+                nivel="Produção"):
     """Imita uma linha de table#tabled_grid do SGCOR (estrutura de 18/11/2026)."""
     return f"""
 <tr class="linhaHover">
@@ -23,6 +24,7 @@ def _linha_html(pid, apolice, cnpj, ramo, cia, ini, fim, tipo="Renovação", sta
  <td><i title="Ramo: {ramo} Endereço: RUA X"></i></td>
  <td><img title="{cia}"></td>
  <td>{ini}</td><td>{fim}</td>
+ <td><i title="Nível {nivel}"></i></td>
  <td><i title="{tipo} ID: 1"></i></td>
  <td><i title="{status}"></i></td>
 </tr>"""
@@ -49,14 +51,33 @@ def test_ler_lista():
     html = _pagina(_linha_html("57675", "2691184", "11.222.333/0001-81", "EMPRESARIAL LOTÉRICO", "TOKIO MARINE",
                                "31/12/2025", "31/12/2026"))
     [l] = ler_lista(html)
-    assert (l.proposta_id, l.apolice, l.cnpj, l.companhia, l.inicio, l.fim, l.tipo, l.status) == (
-        "57675", "2691184", "11222333000181", "TOKIO MARINE", "31/12/2025", "31/12/2026", "Renovação", "Vigente")
+    assert (l.proposta_id, l.apolice, l.cnpj, l.companhia, l.inicio, l.fim, l.tipo, l.status, l.nivel) == (
+        "57675", "2691184", "11222333000181", "TOKIO MARINE", "31/12/2025", "31/12/2026", "Renovação", "Vigente",
+        "Produção")
     assert l.ramo == "EMPRESARIAL LOTÉRICO"
 
 
+def test_ler_lista_nivel_revisao():
+    html = _pagina(_linha_html("56035", "2691162", "11.222.333/0001-81", "EMPRESARIAL LOTÉRICO", "TOKIO MARINE",
+                               "31/12/2025", "31/12/2026", status="Cancelada", nivel="Revisão"))
+    assert ler_lista(html)[0].nivel == "Revisão"
+
+
 def _l(pid, fim, ini="31/12/2025", cia="TOKIO MARINE", ramo="EMPRESARIAL LOTÉRICO", cnpj="11222333000181",
-       status="Vigente"):
-    return LinhaApolice(pid, "1", "X", cnpj, ramo, cia, ini, fim, "Renovação", status)
+       status="Vigente", nivel="Produção"):
+    return LinhaApolice(pid, "1", "X", cnpj, ramo, cia, ini, fim, "Renovação", status, nivel)
+
+
+def test_mesma_vigencia_vale_a_de_nivel_producao():
+    """Caso real (DDA): duas linhas com vigência final 31/12/2026; a de Nível Revisão (bolinha amarela) não conta."""
+    linhas = [_l("56042", "31/12/2026"), _l("56035", "31/12/2026", status="Cancelada", nivel="Revisão")]
+    linha, motivo = escolher_apolice(linhas, _caso(), CFG)
+    assert motivo is None and linha.proposta_id == "56042"
+
+
+def test_so_revisao_vira_pendencia():
+    linha, motivo = escolher_apolice([_l("56035", "31/12/2026", nivel="Revisão")], _caso(), CFG)
+    assert linha is None and "Produção" in motivo
 
 
 def test_escolhe_a_de_vigencia_mais_recente_da_seguradora_e_ramo():

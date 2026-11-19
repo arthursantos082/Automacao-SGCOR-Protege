@@ -54,6 +54,7 @@ class LinhaApolice:
     fim: str
     tipo: str            # "Renovação" | "Nova" | ...
     status: str          # "Vigente" | "Renovada" | ...
+    nivel: str = ""      # "Produção" (bolinha verde) | "Revisão" (bolinha amarela)
 
 
 class _Tabela(HTMLParser):
@@ -136,6 +137,8 @@ def ler_lista(html: str) -> list[LinhaApolice]:
         status = next((t.strip() for td in tds for t in td["titulos"]
                        if t.strip() in ("Vigente", "Renovada", "Recusada", "Cancelada", "Não Renovada", "Endossada",
                                         "Não Renovável")), "")
+        nivel_t = next((t.strip() for td in tds for t in td["titulos"] if re.match(r"N[íi]vel\s+\S", t.strip())), "")
+        nivel = re.sub(r"^N[íi]vel\s+", "", nivel_t)
         out.append(LinhaApolice(
             proposta_id=m.group(1),
             apolice=ap.group(1) if ap else "",
@@ -147,6 +150,7 @@ def ler_lista(html: str) -> list[LinhaApolice]:
             fim=datas[1] if len(datas) > 1 else "",
             tipo=tipo_t.split()[0] if tipo_t else "",
             status=status,
+            nivel=nivel,
         ))
     return out
 
@@ -157,8 +161,8 @@ def _data(s: str) -> date:
 
 
 def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config) -> tuple[LinhaApolice | None, str | None]:
-    """Q11/Q24/Q30: filtra CNPJ + companhia + ramo lotérico e pega a de vigência mais recente.
-    Devolve (linha, None) ou (None, motivo da pendência)."""
+    """Q11/Q24/Q30/Q54: filtra CNPJ + companhia + ramo lotérico, descarta Nível Revisão e pega a de vigência
+    mais recente. Devolve (linha, None) ou (None, motivo da pendência)."""
     cnpj = caso.proposta.cnpj if caso.proposta else None
     marca = "PORTO" if caso.seguradora == "PORTO" else "TOKIO"
     cand = [l for l in linhas
@@ -166,6 +170,11 @@ def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config) -> tup
             and l.fim]
     if not cand:
         return None, "Nenhuma apólice lotérica desta seguradora encontrada no SGCOR para o CNPJ"
+    # Q54: só vale o registro em Produção (bolinha verde); Revisão (bolinha amarela) é desconsiderado
+    producao = [l for l in cand if l.nivel == "Produção"]
+    if not producao:
+        return None, "Nenhuma apólice em Nível Produção para o CNPJ (só em Revisão) — conferir no SGCOR"
+    cand = producao
     cand.sort(key=lambda l: _data(l.fim), reverse=True)
     topo = cand[0]
     if len(cand) > 1 and cand[1].fim == topo.fim:
