@@ -92,6 +92,11 @@ _SOMA = re.compile(r"(?<![\d/.,])(\d{1,2})\s*(?:\+|e\s+mais|mais)\s*(\d{1,2})(?!
 _OU = re.compile(r"(?<![\d/.,])(\d{1,2})\s+ou\s+(\d{1,2})(?![\d/.,])", re.I)
 _ACEITE = re.compile(r"\b(sim|pode|podemos|fechad[oa]|fechar|fecha|ok|isso|aceit[oa]|perfeito|combinado|beleza|certo|"
                      r"de acordo|t[áa] bom|tudo bem|pode ser)\b", re.I)
+# cliente que responde a oferta só com um emoji de "positivo" (Q63). No PDF do Histórico de Atendimento o 👍 sai
+# como caractere do Font Awesome (U+F087 thumbs-o-up / U+F164 thumbs-up); no e-mail, como emoji de verdade.
+_EMOJI_ACEITE = {"": "👍", "": "👍", "\U0001F44D": "👍", "\U0001F44C": "👌", "✅": "✅",
+                 "✔": "✔️", "\U0001F91D": "🤝"}
+_SO_EMOJI_ACEITE = re.compile("^[" + "".join(_EMOJI_ACEITE) + r"\s️\U0001F3FB-\U0001F3FF!.]+$")
 _FECHO_PADRAO = re.compile(r"a ap[óo]lice e os boletos", re.I)  # frase-padrão do consultor, não indica forma
 _N = re.compile(r"(?<![\d/.,])(\d{1,2})\s*(?:x|vezes|parcelas?|parc\b)", re.I)
 _A_VISTA = re.compile(r"\b[àa]\s+vista\b|parcela [úu]nica|pagamento [úu]nico", re.I)
@@ -149,7 +154,14 @@ def _forma_na_mensagem(msg: str) -> str | None:
 
 
 def _curto(msg: str) -> str:
+    for cod, emoji in _EMOJI_ACEITE.items():
+        msg = msg.replace(cod, emoji)
     return msg.replace("\n", " ")[:160]
+
+
+def _aceite(msg: str) -> bool:
+    """'Pode sim', 'Fechado'… ou só um 👍 (Q63)."""
+    return bool(_ACEITE.search(msg) or _SO_EMOJI_ACEITE.match(msg))
 
 
 def escolha_combinada(conversa: list[tuple[str, str]]) -> Escolha:
@@ -180,7 +192,7 @@ def escolha_combinada(conversa: list[tuple[str, str]]) -> Escolha:
                 e.parcelas, e.ambigua = None, True
             if forma:
                 e.forma, e.trecho_forma = forma, _curto(msg)
-        elif oferta and _ACEITE.search(msg):
+        elif oferta and _aceite(msg):
             n, f, txt = oferta
             e.parcelas, e.ambigua, e.origem = n, False, "oferta aceita"
             e.trecho_parcelas = f"{_curto(txt)} → cliente: {_curto(msg)}"

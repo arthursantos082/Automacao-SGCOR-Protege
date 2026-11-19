@@ -19,7 +19,7 @@ from ..estado import Ajuste, pasta_dados
 from ..modelos import Caso
 from ..scanner import analisar_pasta, assinatura, pastas_de, seguradora_da_pasta, soltos
 
-VERSAO_LEITURA = "5"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+VERSAO_LEITURA = "8"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
 
 
 def _versao() -> str:
@@ -77,7 +77,7 @@ class Leitor(QObject):
             reler: list[tuple[Path, str, tuple, tuple]] = []
             for pasta, seg in alvos:
                 a = ajustes.get(pasta)
-                chave_aj = (a.parcelas, a.forma, a.proposta) if a else ()
+                chave_aj = (a.parcelas, a.forma, a.proposta, a.vigencia) if a else ()
                 ass = assinatura(pasta)
                 hit = self._cache.get(pasta)
                 if hit and hit[0] == ass and hit[1] == chave_aj:

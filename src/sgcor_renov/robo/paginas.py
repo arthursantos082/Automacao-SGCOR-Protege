@@ -297,7 +297,8 @@ def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic,
     """Q59: só os tipos em `ajustar` (Incêndio, Valores no interior, Valores em trânsito) têm o LMI ajustado;
     todas as outras coberturas ficam como vieram no SGCOR. Devolve (ajustes de LMI, pendências, avisos).
     Desses tipos: nova na proposta → ignora; sumiu da proposta → fica como está (avisos, Q57);
-    mais de uma no item do SGCOR → pendência. proposta = [(Cobertura, chave)] já classificada na F1."""
+    mais de uma no item do SGCOR → ajusta só a que tem "GERPA" no nome, ou a primeira se nenhuma tiver (Q61, aviso).
+    proposta = [(Cobertura, chave)] já classificada na F1."""
     pend: list[str] = []
     avisos: list[str] = []
     por_tipo: dict[str, list[CoberturaSgcor]] = {}
@@ -314,11 +315,14 @@ def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic,
         alvos = por_tipo.get(chave, [])
         if not alvos:
             avisos.append(f"cobertura da proposta não existe no item do SGCOR, ignorada: “{cob.nome}” R$ {cob.lmi}")
-        elif len(alvos) > 1:
-            pend.append(f"Mais de uma cobertura do mesmo tipo no item do SGCOR para “{cob.nome}”: "
-                        + "; ".join(a.nome for a in alvos))
         else:
             alvo = alvos[0]
+            if len(alvos) > 1:
+                # Q61: duplicidade é cadastro do SGCOR; não para a renovação por isso
+                alvo = next((a for a in alvos if "GERPA" in a.nome.upper()), alvos[0])
+                avisos.append(f"mais de uma cobertura do mesmo tipo no item do SGCOR para “{cob.nome}” ("
+                              + "; ".join(a.nome for a in alvos) + f"): ajusta só “{alvo.nome}”")
+                usados.update(id(a) for a in alvos)
             usados.add(id(alvo))
             if alvo.lmi != cob.lmi:
                 ajustes.append(Ajuste(alvo.nome, alvo.lmi, cob.lmi, alvo.url_alterar))

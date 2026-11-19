@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 NOME = "AutoCOR"
-VERSAO = "1.1.0"
+VERSAO = "1.1.1"
 EDITOR = "Grupo Protege"
 CHAVE_UNINSTALL = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{NOME}"
 CSIDL_COMMON_DESKTOP, CSIDL_COMMON_PROGRAMS, CSIDL_PROGRAM_FILES = 0x19, 0x17, 0x26

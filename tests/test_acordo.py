@@ -68,6 +68,20 @@ def test_oferta_do_consultor_aceita_pelo_cliente():
     assert (e.parcelas, e.forma, e.origem) == (6, "boleto", "oferta aceita")
 
 
+@pytest.mark.parametrize("resposta", ["", "", "👍", "👍🏽", " 👍👍 ", "👌", "✅"])
+def test_oferta_aceita_so_com_emoji_positivo(resposta):
+    # Q63, caso real (Bom Jesus): o cliente respondeu só com 👍; no PDF do chat ele vem como U+F087 (Font Awesome)
+    e = escolha_combinada([(A, "Podemos seguir em 10x no boleto sem juros?"), (C, resposta)])
+    assert (e.parcelas, e.forma, e.origem) == (10, "boleto", "oferta aceita")
+    assert "" not in e.trecho_parcelas
+
+
+@pytest.mark.parametrize("resposta", ["😢", "", "🤔 vou ver", "👎"])
+def test_outros_emojis_nao_aceitam(resposta):
+    e = escolha_combinada([(A, "Podemos seguir em 10x no boleto sem juros?"), (C, resposta)])
+    assert e.parcelas is None
+
+
 def test_oferta_sem_forma_nao_vale():
     e = escolha_combinada([(A, "Vamos fechar em 6x?"), (C, "Pode sim")])
     assert e.parcelas is None

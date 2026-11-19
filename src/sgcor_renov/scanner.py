@@ -140,4 +140,6 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
             if ajuste.forma:
                 c.escolha.forma, c.escolha.forma_presumida = ajuste.forma, False
 
+    if ajuste:
+        c.vigencia_confirmada = ajuste.vigencia
     return regras.aplicar(c, cfg)

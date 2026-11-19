@@ -26,3 +26,20 @@ def test_ajustes_e_renovacao_pela_metade(tmp_path):
                                               "proposta_id": "66705", "produtor": "FULANO",
                                               "quando": "2026-11-19 11:16:50"}}
     e.fechar()
+
+
+def test_vigencia_confirmada_e_estado_antigo_sem_a_coluna(tmp_path):
+    import sqlite3
+    arq = tmp_path / "estado.sqlite"
+    velho = sqlite3.connect(arq)       # estado da 1.1.0: tabela ajustes sem a coluna vigencia
+    velho.execute("CREATE TABLE ajustes (pasta TEXT PRIMARY KEY, parcelas INTEGER, forma TEXT, proposta TEXT, "
+                  "atualizado TEXT DEFAULT CURRENT_TIMESTAMP)")
+    pasta = Path("C:/x/FECHADOS PORTO/LOTERICA EXEMPLO")
+    velho.execute("INSERT INTO ajustes (pasta, parcelas) VALUES (?, 6)", (str(pasta),))
+    velho.commit(); velho.close()
+    e = Estado(arq)
+    assert e.ajuste(pasta) == Ajuste(6, None, None, None)
+    e.salvar(pasta, Ajuste(6, None, None, "05/12/2026"))
+    assert e.ajuste(pasta).vigencia == "05/12/2026"
+    assert not Ajuste(vigencia="05/12/2026").vazio()
+    e.fechar()

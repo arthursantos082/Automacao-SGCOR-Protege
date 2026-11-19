@@ -5,17 +5,18 @@ Nada é enviado ao SGCOR sem o consultor marcar as lotéricas, clicar em Executa
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPixmap
+from PySide6.QtGui import QActionGroup, QColor, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSpinBox, QSplitter,
-    QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSpinBox, QSplitter,
+    QTableView, QToolButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import atualizacao, instalacao
@@ -24,9 +25,10 @@ from ..instalacao import VERSAO
 from ..estado import Ajuste, Estado
 from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
+from ..regras import onde_pendencia
 from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
-from .tabela import FORMAS, FiltroCasos, ModeloCasos
+from .tabela import COL_CNPJ, FORMAS, DelegadoCopiar, FiltroCasos, ModeloCasos, icone_copiar
 from .trabalhador import Trabalhador
 from .tutorial import Tutorial
 
@@ -46,7 +48,20 @@ QPushButton#primario {{ background: {AZUL}; color: white; border: 1px solid #2c4
 QPushButton#primario:hover {{ background: #1d3a6e; }}
 QPushButton#primario:pressed {{ background: #0b1a36; }}
 QPushButton#primario:disabled {{ background: #9aa5b8; color: #eef1f5; }}
+QPushButton[pendente="true"] {{ background: #f2c230; color: #1f1800; border: 1px solid #c99a00;
+                                      border-radius: 4px; padding: 4px 12px; font-weight: 600; }}
+QPushButton[pendente="true"]:hover {{ background: #ffd34d; }}
+QPushButton[pendente="true"]:disabled {{ background: #b39a4d; color: #3d3100; }}
 """
+
+# tema: "sistema" segue o Windows; "claro"/"escuro" forçam (guardado em QSettings "tema")
+TEMAS = {"sistema": ("Automático (igual ao Windows)", Qt.ColorScheme.Unknown),
+         "claro": ("Claro", Qt.ColorScheme.Light),
+         "escuro": ("Escuro", Qt.ColorScheme.Dark)}
+
+
+def aplicar_tema(chave: str) -> None:
+    QGuiApplication.styleHints().setColorScheme(TEMAS.get(chave, TEMAS["sistema"])[1])
 
 
 def abrir_no_windows(caminho: Path) -> None:
@@ -109,6 +124,19 @@ class Janela(QMainWindow):
         bt_tutorial.setToolTip("Abre o tutorial: como organizar as pastas e usar o robô")
         bt_tutorial.clicked.connect(self.mostrar_tutorial)
         cl.addWidget(bt_tutorial)
+        bt_tema = QPushButton("Tema")
+        bt_tema.setToolTip("Tema claro ou escuro")
+        menu_tema = QMenu(bt_tema)
+        grupo_tema = QActionGroup(menu_tema)
+        tema_atual = str(self.settings.value("tema", "sistema"))
+        for chave, (rotulo, _) in TEMAS.items():
+            acao = menu_tema.addAction(rotulo)
+            acao.setCheckable(True)
+            acao.setChecked(chave == tema_atual)
+            acao.triggered.connect(lambda _=False, k=chave: self._trocar_tema(k))
+            grupo_tema.addAction(acao)
+        bt_tema.setMenu(menu_tema)
+        cl.addWidget(bt_tema)
         bt_atualizar = QPushButton("Verificar atualização")
         bt_atualizar.setToolTip(f"Você está na versão {VERSAO}. Procura versão nova no GitHub.")
         bt_atualizar.clicked.connect(lambda: self.checar_atualizacao(silencioso=False))
@@ -136,6 +164,8 @@ class Janela(QMainWindow):
         self.bt_sgcor = QPushButton("Verificar conexão ao SGCOR")
         self.bt_sgcor.setToolTip("Abre o navegador do robô. Se pedir login, entre com o seu usuário nele e clique de novo.")
         self.bt_sgcor.clicked.connect(self._verificar)
+        self.bt_sgcor.setObjectName("sgcor")
+        self._sgcor_pendente(True)            # amarelo até o consultor logar e a conexão dar certo
         topo.addWidget(self.bt_sgcor, 1, 4)
         self.lb_conexao = QLabel("● SGCOR não verificado")
         self.lb_conexao.setStyleSheet("color: #888;")
@@ -186,6 +216,9 @@ class Janela(QMainWindow):
         self.tabela.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setAlternatingRowColors(True)
+        self.copiar_cnpj = DelegadoCopiar(self.tabela)        # ícone de copiar ao lado do CNPJ
+        self.copiar_cnpj.copiado.connect(self._cnpj_copiado)
+        self.tabela.setItemDelegateForColumn(COL_CNPJ, self.copiar_cnpj)
         cab = self.tabela.horizontalHeader()
         cab.setSectionResizeMode(QHeaderView.ResizeToContents)   # nomes inteiros; em tela pequena, rola na horizontal
         cab.setStretchLastSection(True)
@@ -394,13 +427,15 @@ class Janela(QMainWindow):
             self.settings.setValue(f"divisoria_{i}", s.saveState())
 
     @staticmethod
-    def _secao(titulo: str, conteudo: QWidget) -> QWidget:
+    def _secao(titulo: str, conteudo: QWidget, embaixo: QWidget | None = None) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(2)
         lay.addWidget(QLabel(titulo))
         lay.addWidget(conteudo, 1)
+        if embaixo is not None:
+            lay.addWidget(embaixo)
         return w
 
     def _painel_detalhe(self) -> QWidget:
@@ -425,12 +460,26 @@ class Janela(QMainWindow):
             lb.setWordWrap(True)
             lb.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.info[k] = lb
-            self.form_info.addRow(k + ":", lb)
+            if k == "CNPJ":
+                linha = QHBoxLayout()
+                linha.setContentsMargins(0, 0, 0, 0)
+                linha.addWidget(lb)
+                self.bt_copiar_cnpj = QToolButton()
+                self.bt_copiar_cnpj.setIcon(icone_copiar())
+                self.bt_copiar_cnpj.setAutoRaise(True)
+                self.bt_copiar_cnpj.setToolTip("Copiar CNPJ")
+                self.bt_copiar_cnpj.setCursor(Qt.PointingHandCursor)
+                self.bt_copiar_cnpj.clicked.connect(self._copiar_cnpj_detalhe)
+                linha.addWidget(self.bt_copiar_cnpj)
+                linha.addStretch(1)
+                self.form_info.addRow(k + ":", linha)
+            else:
+                self.form_info.addRow(k + ":", lb)
         lay.addLayout(self.form_info)
 
         self.lb_combinado = QLabel()
         self.lb_combinado.setWordWrap(True)
-        self.lb_combinado.setStyleSheet("color: #444; font-style: italic;")
+        self.lb_combinado.setStyleSheet("color: #8b949e; font-style: italic;")   # legível nos dois temas
         lay.addWidget(self.lb_combinado)
 
         self.ls_pend = QListWidget()
@@ -463,13 +512,21 @@ class Janela(QMainWindow):
         botoes.addWidget(self.bt_aplicar)
         botoes.addWidget(self.bt_desfazer)
         f.addRow(botoes)
+        # Q64: vigência da proposta diferente da padrão não tem como corrigir no PDF → o consultor confirma a padrão
+        self.bt_vigencia = QPushButton("Seguir com a vigência padrão…")
+        self.bt_vigencia.setToolTip("A vigência vem da proposta e não dá para corrigir no PDF: confirme para "
+                                    "cadastrar com a vigência padrão da configuração")
+        self.bt_vigencia.clicked.connect(self._confirmar_vigencia)
+        self.bt_vigencia.setVisible(False)
+        self._amarelo(self.bt_vigencia, True)         # só aparece quando há a pendência: pede atenção
 
         self.split_det = QSplitter(Qt.Vertical)
         self.split_det.setChildrenCollapsible(False)
         self.split_det.setHandleWidth(8)
-        for titulo, conteudo in (("Pendências", self.ls_pend), ("Avisos", self.ls_avisos),
-                                 ("Coberturas da proposta (LMI) — ✎ = o robô ajusta no SGCOR", self.ls_cob)):
-            self.split_det.addWidget(self._secao(titulo, conteudo))
+        for titulo, conteudo, embaixo in (
+                ("Pendências", self.ls_pend, self.bt_vigencia), ("Avisos", self.ls_avisos, None),   # Q64
+                ("Coberturas da proposta (LMI) — ✎ = o robô ajusta no SGCOR", self.ls_cob, None)):
+            self.split_det.addWidget(self._secao(titulo, conteudo, embaixo))
         self.split_det.addWidget(box)
         for i, peso in enumerate((1, 1, 2, 0)):
             self.split_det.setStretchFactor(i, peso)
@@ -530,7 +587,8 @@ class Janela(QMainWindow):
 
     def _lido(self, casos: list[Caso]) -> None:
         selecionada = self._atual.pasta if self._atual else None
-        self.modelo.definir(casos)
+        metade = {c.pasta: m[0] for c in casos if (m := self.estado.pela_metade(c.pasta))}
+        self.modelo.definir(casos, metade)
         self.tabela.resizeColumnsToContents()
         self.lendo = False
         self.progresso.setVisible(False)
@@ -596,10 +654,14 @@ class Janela(QMainWindow):
         c: Caso | None = idx.data(Qt.UserRole) if idx.isValid() else None
         self._atual = c
         self._habilitar_detalhe(c is not None)
+        onde = set().union(*(onde_pendencia(t) for t in c.pendencias)) if c else set()
+        for botao, pdf, no in ((self.bt_acordo, "acordo", "no acordo"), (self.bt_prop, "proposta", "na proposta")):  # Q63
+            self._amarelo(botao, pdf in onde)
+            botao.setToolTip(f"Há pendência {no}: abra para conferir" if pdf in onde else "")
         if c is None:
             return
         p = c.proposta
-        self.lb_titulo.setText(f"{c.nome}  ·  {c.status}")
+        self.lb_titulo.setText(f"{c.nome}  ·  {self.modelo.rotulo_status(c)}")
         vals = {
             "Seguradora": c.seguradora.title(),
             "CNPJ": formatar_cnpj(p.cnpj) if p else "",
@@ -649,6 +711,7 @@ class Janela(QMainWindow):
             wdg.setEnabled(resolvivel)
         self.bt_acordo.setEnabled(c.acordo is not None)
         self.bt_prop.setEnabled(bool(c.propostas))
+        self.bt_vigencia.setVisible(resolvivel and any(t.startswith("Vigência da proposta") for t in c.pendencias))
 
     def _abrir_proposta(self) -> None:
         c = self._atual
@@ -657,11 +720,29 @@ class Janela(QMainWindow):
             abrir_no_windows(alvo)
 
     def _aplicar_ajuste(self) -> None:
+        anterior = self.estado.ajuste(self._atual.pasta) if self._atual and self._atual.pasta.is_dir() else None
         self._salvar_ajuste(Ajuste(
             parcelas=self.sp_parcelas.value() or None,
             forma=self.cb_forma.currentData(),
             proposta=self.cb_proposta.currentData(),
+            vigencia=anterior.vigencia if anterior else None,     # não perde a vigência já confirmada
         ))
+
+    def _confirmar_vigencia(self) -> None:
+        c = self._atual
+        if not c or not c.proposta or not c.proposta.vigencia_inicio or not c.pasta.is_dir():
+            return
+        r = QMessageBox.question(
+            self, "Vigência",
+            f"A proposta de {c.nome} começa em {c.proposta.vigencia_inicio}, mas o AutoCOR vai cadastrar no SGCOR "
+            f"com a vigência padrão: {self.cfg.vigencia_inicio} a {self.cfg.vigencia_fim}.\n\n"
+            "Seguir com essa vigência mesmo assim?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return
+        a = self.estado.ajuste(c.pasta) or Ajuste()
+        a.vigencia = c.proposta.vigencia_inicio
+        self._salvar_ajuste(a)
 
     def _salvar_ajuste(self, a: Ajuste) -> None:
         if not self._atual or not self._atual.pasta.is_dir():
@@ -702,6 +783,27 @@ class Janela(QMainWindow):
         self.trab.pausado.connect(self._pausado, fila)
         self.trab.fim_lote.connect(self._fim_lote, fila)
 
+    @staticmethod
+    def _amarelo(botao: QPushButton, sim: bool) -> None:
+        """Botão em amarelo (pede atenção) ou na cor padrão."""
+        if botao.property("pendente") == sim:
+            return
+        botao.setProperty("pendente", sim)
+        botao.style().unpolish(botao)
+        botao.style().polish(botao)
+
+    def _sgcor_pendente(self, sim: bool) -> None:
+        """Botão do SGCOR em amarelo enquanto falta conectar/logar; conectado, volta à cor padrão."""
+        self._amarelo(self.bt_sgcor, sim)
+
+    def _trocar_tema(self, chave: str) -> None:
+        self.settings.setValue("tema", chave)
+        aplicar_tema(chave)
+        # com o app aberto, só o fundo trocava: recria o estilo para todas as telas pegarem as cores novas
+        app = QApplication.instance()
+        app.setStyle(app.style().name())
+        app.setStyleSheet(ESTILO)
+
     def _verificar(self) -> None:
         self.bt_sgcor.setEnabled(False)
         self.lb_conexao.setText("● verificando…")
@@ -715,6 +817,7 @@ class Janela(QMainWindow):
     def _conexao(self, ok: bool, produtores: list) -> None:
         self.bt_sgcor.setEnabled(not self.executando)
         self.conectado = ok
+        self._sgcor_pendente(not ok)
         if ok:
             self.lb_conexao.setText("● SGCOR conectado")
             self.lb_conexao.setStyleSheet("color: #2ea043; font-weight: 600;")
@@ -752,6 +855,8 @@ class Janela(QMainWindow):
         self.trab.pedir_execucao(sel, produtor, self.cb_modo.currentData())
 
     def _decidir(self, acao: str) -> None:
+        if acao == "retomar":
+            self._sgcor_pendente(False)   # se o SGCOR ainda pedir login, volta a ficar amarelo
         self.barra_conf.setVisible(False)
         self.trab.decidir(acao)
 
@@ -760,8 +865,18 @@ class Janela(QMainWindow):
         self.bt_pausar.setEnabled(False)
         self.statusBar().showMessage("Pausa pedida: o robô para ao terminar a lotérica atual.", 8000)
 
+    def _cnpj_copiado(self, cnpj: str) -> None:
+        self.statusBar().showMessage(f"CNPJ {cnpj} copiado.", 4000)
+
+    def _copiar_cnpj_detalhe(self) -> None:
+        cnpj = self.info["CNPJ"].text()
+        if cnpj and cnpj != "—":
+            QGuiApplication.clipboard().setText(cnpj)
+            self._cnpj_copiado(cnpj)
+
     def _situacao(self, pasta: Path, texto: str) -> None:
-        self.modelo.definir_situacao(pasta, texto)
+        m = re.match(r"Pela metade \(ID (\d+)", texto)
+        self.modelo.definir_situacao(pasta, texto, m.group(1) if m else None)
         if self._atual and self._atual.pasta == pasta:
             self.lb_titulo.setText(f"{self._atual.nome}  ·  {texto}")
 
@@ -777,6 +892,7 @@ class Janela(QMainWindow):
         QApplication.alert(self)
 
     def _login_necessario(self) -> None:
+        self._sgcor_pendente(True)
         self.lb_conf.setText("O SGCOR pediu login. Entre com o seu usuário na janela do robô e clique em Retomar.")
         self.bt_continuar.setVisible(False)
         self.bt_pular.setVisible(False)
@@ -889,6 +1005,7 @@ def main() -> int:
     app.setApplicationName(APP)
     app.setWindowIcon(QIcon(str(RECURSOS / "icone.ico")))
     app.setStyleSheet(ESTILO)
+    aplicar_tema(str(QSettings().value("tema", "sistema")))
     j = Janela()
     j.show()
     return app.exec()

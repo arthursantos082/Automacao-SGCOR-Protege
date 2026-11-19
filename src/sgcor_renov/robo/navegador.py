@@ -210,10 +210,10 @@ class Robo:
             elif c.tipo == "select":
                 alvo.select_option(c.valor)
             else:
-                alvo.click()
-                alvo.press("Control+A")
-                alvo.press("Delete")
-                alvo.press_sequentially(c.valor, delay=15)   # digita: as máscaras do SGCOR reagem a teclas
+                # digita tecla por tecla (as máscaras e os cálculos do SGCOR reagem a teclas e ao sair do campo),
+                # mas sem pausa entre as teclas: ~0,5 s na tela toda em vez de ~4 s
+                alvo.fill("")
+                alvo.press_sequentially(c.valor)
                 alvo.press("Tab")
         # confere o que ficou na tela
         errados = []

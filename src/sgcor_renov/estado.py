@@ -23,9 +23,10 @@ class Ajuste:
     parcelas: int | None = None
     forma: str | None = None
     proposta: str | None = None   # nome do arquivo escolhido quando há 2+ propostas
+    vigencia: str | None = None   # Q64: início da proposta que o consultor aceitou trocar pela vigência padrão
 
     def vazio(self) -> bool:
-        return self.parcelas is None and self.forma is None and self.proposta is None
+        return self.parcelas is None and self.forma is None and self.proposta is None and self.vigencia is None
 
 
 class Estado:
@@ -35,6 +36,8 @@ class Estado:
         self.db.execute("""CREATE TABLE IF NOT EXISTS ajustes (
             pasta TEXT PRIMARY KEY, parcelas INTEGER, forma TEXT, proposta TEXT,
             atualizado TEXT DEFAULT CURRENT_TIMESTAMP)""")
+        if "vigencia" not in {r[1] for r in self.db.execute("PRAGMA table_info(ajustes)")}:
+            self.db.execute("ALTER TABLE ajustes ADD COLUMN vigencia TEXT")   # estado de versões anteriores
         # renovação criada no SGCOR (depois do Avançar) que ficou pela metade: o robô retoma da etapa
         self.db.execute("""CREATE TABLE IF NOT EXISTS renovacoes_pela_metade (
             pasta TEXT PRIMARY KEY, proposta_id TEXT NOT NULL, etapa TEXT NOT NULL, motivo TEXT,
@@ -75,7 +78,7 @@ class Estado:
         self.db.commit()
 
     def ajuste(self, pasta: Path) -> Ajuste | None:
-        row = self.db.execute("SELECT parcelas, forma, proposta FROM ajustes WHERE pasta = ?",
+        row = self.db.execute("SELECT parcelas, forma, proposta, vigencia FROM ajustes WHERE pasta = ?",
                               (str(pasta),)).fetchone()
         return Ajuste(*row) if row else None
 
@@ -84,10 +87,10 @@ class Estado:
             self.db.execute("DELETE FROM ajustes WHERE pasta = ?", (str(pasta),))
         else:
             self.db.execute(
-                "INSERT INTO ajustes (pasta, parcelas, forma, proposta) VALUES (?, ?, ?, ?) "
+                "INSERT INTO ajustes (pasta, parcelas, forma, proposta, vigencia) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(pasta) DO UPDATE SET parcelas=excluded.parcelas, forma=excluded.forma, "
-                "proposta=excluded.proposta, atualizado=CURRENT_TIMESTAMP",
-                (str(pasta), a.parcelas, a.forma, a.proposta))
+                "proposta=excluded.proposta, vigencia=excluded.vigencia, atualizado=CURRENT_TIMESTAMP",
+                (str(pasta), a.parcelas, a.forma, a.proposta, a.vigencia))
         self.db.commit()
 
     def fechar(self) -> None:

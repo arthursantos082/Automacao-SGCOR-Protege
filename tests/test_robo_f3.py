@@ -70,11 +70,27 @@ def test_plano_so_mexe_em_incendio_e_valores():
     assert any("mantida" in a and "INTERIOR" in a for a in avisos)
 
 
-def test_plano_pendencia_so_se_incendio_ou_valores_repetido_no_sgcor():
+def test_plano_tipo_repetido_no_sgcor_ajusta_so_a_gerpa():
+    # Q61, caso real (GODOI & CURVELO): duas de Valores no interior → ajusta a GERPA e segue, sem pendência
+    proposta = [_cob("Valores No Interior Do Estabelecimento - Lotérica", "30000", "valores_interior")]
+    sgcor = [_sg("SUBTRACAO DE VALORES", "50000"),
+             _sg("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", "50000")]
+    ajustes, pend, avisos = plano_coberturas(proposta, sgcor, DIC)
+    assert pend == []
+    assert [(a.nome_sgcor, a.para) for a in ajustes] == [
+        ("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", D("30000"))]
+    assert len(avisos) == 1 and "ajusta só “GERPA" in avisos[0]          # a outra não vira "mantida"
+    # depois de salvo, a conferência escolhe a mesma e não vê mais nada a ajustar
+    sgcor[1] = _sg("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", "30000")
+    assert plano_coberturas(proposta, sgcor, DIC)[0] == []
+
+
+def test_plano_tipo_repetido_sem_gerpa_ajusta_a_primeira():
     proposta = [_cob("Incêndio", "90000", "incendio")]
     sgcor = [_sg("INCÊNDIO, RAIO, EXPLOSÃO", "60000"), _sg("INCÊNDIO, EXPLOSÃO, FUMAÇA E QUEDA DE", "60000")]
-    _, pend, _ = plano_coberturas(proposta, sgcor, DIC)
-    assert len(pend) == 1 and "Mais de uma cobertura" in pend[0]
+    ajustes, pend, avisos = plano_coberturas(proposta, sgcor, DIC)
+    assert pend == [] and len(avisos) == 1
+    assert [a.nome_sgcor for a in ajustes] == ["INCÊNDIO, RAIO, EXPLOSÃO"]
 
 
 def test_parcelas_com_tabelas_aninhadas_e_conferencia():

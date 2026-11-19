@@ -34,12 +34,14 @@ O AutoCOR identifica cada PDF pelo conteúdo, então nomes um pouco diferentes t
 
 O AutoCOR abre com um tutorial, que também pode ser aberto no botão **Como usar**. O uso é este:
 
-1. Na lista, cada lotérica aparece como **Pronto** ou **Pendente**. Para ver o motivo de uma pendência, clique na lotérica. Para resolver, corrija a pasta ou informe as parcelas e a forma em **Resolver**.
-2. Clique em **Verificar conexão ao SGCOR**. Se o SGCOR pedir login, entre com o seu usuário na janela do Chrome que o robô abre. O robô nunca digita nem guarda senha.
+1. Na lista, cada lotérica aparece como **Pronto** (verde), **Pendente** (vermelho) ou **Pela metade** (laranja). Para ver o motivo de uma pendência, clique na lotérica: os botões **Abrir acordo** / **Abrir proposta** ficam amarelos no PDF onde está o problema. Para resolver, corrija a pasta ou informe as parcelas e a forma em **Resolver**. Se a vigência da proposta for diferente da padrão, o botão **Seguir com a vigência padrão…** pede a sua confirmação.
+2. Clique em **Verificar conexão ao SGCOR** (fica amarelo até a conexão dar certo). Se o SGCOR pedir login, entre com o seu usuário na janela do Chrome que o robô abre. O robô nunca digita nem guarda senha.
 3. Escolha o seu nome em **Consultor / Produtor**. É esse nome que vai no repasse.
 4. Marque as lotéricas prontas, clique em **Executar selecionadas** e confirme o resumo.
 5. Acompanhe pelo log. Se algo falhar depois de criada a renovação, ela fica **Pela metade**. Nesse caso, execute de novo, que o robô continua de onde parou.
 6. Em **Ver cadastradas** aparecem as lotéricas já cadastradas, com o ID do SGCOR.
+
+O ícone ao lado do CNPJ copia o número. O botão **Tema**, no cabeçalho, troca entre claro, escuro e automático (igual ao Windows).
 
 ## Instalação nas máquinas (TI)
 
@@ -113,7 +115,7 @@ gh release create v1.0.1 dist\AutoCOR.zip --title "AutoCOR 1.0.1" --notes "O que
 | `src/sgcor_renov/ui/` | janela (PySide6), tutorial, cadastradas, leitor em paralelo e a thread do robô |
 | `config/` | configuração editável |
 | `docs/f0-mapa-sgcor.md` | mapa das telas e seletores do SGCOR |
-| `plan.md` | plano e registro de decisões (Q1…Q58) |
+| `plan.md` | plano e registro de decisões (Q1…Q64) |
 | `empacotar/` | ponto de entrada e script do PyInstaller |
 
 ### Regras de segurança
