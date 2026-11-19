@@ -30,6 +30,8 @@ class Config:
     vigencia_inicio: str = "31/12/2026"
     vigencia_fim: str = "31/12/2027"
     url_sgcor: str = "https://grupoprotege.sgcor.com.br/"
+    navegador: str = "chrome"
+    espera_login: int = 300
 
     def bonus_para(self, comissao: int) -> Decimal | None:
         for f in self.bonus:
@@ -42,6 +44,8 @@ def carregar(caminho: Path = PADRAO) -> Config:
     dados = tomllib.loads(caminho.read_text(encoding="utf-8"))
     sg = dict(dados["sgcor"])
     url = str(sg.pop("url", "https://grupoprotege.sgcor.com.br/"))
+    navegador = str(sg.pop("navegador", "chrome"))
+    espera_login = int(sg.pop("espera_login", 300))
     return Config(
         primeira_parcela=dados["datas"]["primeira_parcela"],
         apolice_provisoria=str(dados["apolice"]["provisoria"]),
@@ -51,4 +55,6 @@ def carregar(caminho: Path = PADRAO) -> Config:
         vigencia_inicio=dados["datas"].get("vigencia_inicio", "31/12/2026"),
         vigencia_fim=dados["datas"].get("vigencia_fim", "31/12/2027"),
         url_sgcor=url if url.endswith("/") else url + "/",
+        navegador=navegador,
+        espera_login=espera_login,
     )

@@ -41,6 +41,11 @@ pix = 36
 
 [sgcor]
 url = "https://grupoprotege.sgcor.com.br/"
+# Navegador do robô (Q53): o Chrome instalado na máquina, com perfil próprio. O Chromium do Playwright
+# não é assinado e o Controle Inteligente de Aplicativos do Windows 11 o bloqueia. Alternativa: "msedge".
+navegador = "chrome"
+# Tempo (s) que o robô espera o consultor fazer login na janela dele depois de "Verificar conexão"
+espera_login = 300
 companhia_porto = 12
 companhia_tokio = 13
 ramo_loterico = 9

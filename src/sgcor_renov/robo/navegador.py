@@ -48,24 +48,37 @@ class Robo:
     def abrir(self) -> None:
         if self.page and not self.page.is_closed():
             return
-        if self._pw is None:
-            self._pw = sync_playwright().start()
-        self.perfil.mkdir(parents=True, exist_ok=True)
-        self._ctx = self._pw.chromium.launch_persistent_context(
-            str(self.perfil), headless=False, no_viewport=True, args=["--start-maximized"],
-            accept_downloads=False,
-        )
-        self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
-        self.page.set_default_timeout(30000)
-        self.page.on("dialog", self._dialogo)
+        if self.page is not None:          # o consultor fechou a janela do robô: começa do zero
+            self.fechar()
+        try:
+            if self._pw is None:
+                self._pw = sync_playwright().start()
+            self.perfil.mkdir(parents=True, exist_ok=True)
+            self._ctx = self._pw.chromium.launch_persistent_context(
+                str(self.perfil), channel=self.cfg.navegador, headless=False, no_viewport=True,
+                args=["--start-maximized"], accept_downloads=False,
+            )
+            self.page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+            self.page.set_default_timeout(30000)
+            self.page.on("dialog", self._dialogo)
+        except Exception as e:
+            # Um Playwright que falhou ao abrir não pode ser reaproveitado (derrubava o app na 2ª tentativa)
+            self.fechar()
+            nome = {"chrome": "Google Chrome", "msedge": "Microsoft Edge"}.get(self.cfg.navegador, self.cfg.navegador)
+            raise FalhaRobo(f"Não consegui abrir o {nome} do robô: {str(e).splitlines()[0]}") from e
 
     def fechar(self) -> None:
         try:
             if self._ctx:
                 self._ctx.close()
+        except Exception:
+            pass
         finally:
-            if self._pw:
-                self._pw.stop()
+            try:
+                if self._pw:
+                    self._pw.stop()
+            except Exception:
+                pass
             self._pw = self._ctx = self.page = None
 
     @staticmethod
@@ -101,10 +114,22 @@ class Robo:
         """Logado = a página tem o menu com 'Sair' (onclick logout)."""
         return self.page.locator("[onclick*='logout']").count() > 0
 
-    def verificar(self) -> bool:
+    def verificar(self, ao_esperar=None) -> bool:
+        """Abre o SGCOR; se pedir login, espera o consultor entrar na janela do robô (até cfg.espera_login s)."""
         self.abrir()
         self.page.goto(url_lista(self.cfg), wait_until="domcontentloaded")
-        return self.logado()
+        if self.logado():
+            return True
+        if ao_esperar:
+            ao_esperar()
+        self.page.bring_to_front()
+        try:
+            # depois do login o SGCOR pode ir para qualquer tela; basta aparecer o menu com "Sair"
+            self.page.wait_for_selector("[onclick*='logout']", state="attached",
+                                        timeout=self.cfg.espera_login * 1000)
+        except Exception:
+            return False
+        return True
 
     def produtores(self) -> list[tuple[str, str]]:
         """Lista de produtores do SGCOR (Q36), lida do filtro 'Produtor Repasse' da pesquisa."""

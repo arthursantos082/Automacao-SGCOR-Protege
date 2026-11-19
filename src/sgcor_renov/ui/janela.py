@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QMetaObject, QSettings, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
@@ -35,8 +35,6 @@ def abrir_no_windows(caminho: Path) -> None:
 
 class Janela(QMainWindow):
     pedir_leitura = Signal(object, object)   # raízes, ajustes
-    pedir_verificacao = Signal()
-    pedir_execucao = Signal(object, str)     # casos, produtor
 
     def __init__(self):
         super().__init__()
@@ -480,25 +478,27 @@ class Janela(QMainWindow):
     # ------------------------------------------------------------------ robô
 
     def _iniciar_robo(self) -> None:
-        self.thread_robo = QThread(self)
+        # o robô tem uma thread Python própria (ver trabalhador.py); os sinais chegam aqui pela fila do Qt
         self.trab = Trabalhador(self.cfg)
-        self.trab.moveToThread(self.thread_robo)
-        self.pedir_verificacao.connect(self.trab.verificar)
-        self.pedir_execucao.connect(self.trab.executar)
-        self.trab.linha_log.connect(self.log.appendPlainText)
-        self.trab.conexao.connect(self._conexao)
-        self.trab.situacao.connect(self._situacao)
-        self.trab.aguardando.connect(self._aguardando)
-        self.trab.login_necessario.connect(self._login_necessario)
-        self.trab.pausado.connect(self._pausado)
-        self.trab.fim_lote.connect(self._fim_lote)
-        self.thread_robo.start()
+        fila = Qt.QueuedConnection
+        self.trab.linha_log.connect(self.log.appendPlainText, fila)
+        self.trab.conexao.connect(self._conexao, fila)
+        self.trab.esperando_login.connect(self._esperando_login, fila)
+        self.trab.situacao.connect(self._situacao, fila)
+        self.trab.aguardando.connect(self._aguardando, fila)
+        self.trab.login_necessario.connect(self._login_necessario, fila)
+        self.trab.pausado.connect(self._pausado, fila)
+        self.trab.fim_lote.connect(self._fim_lote, fila)
 
     def _verificar(self) -> None:
         self.bt_sgcor.setEnabled(False)
         self.lb_conexao.setText("● verificando…")
         self.lb_conexao.setStyleSheet("color: #888;")
-        self.pedir_verificacao.emit()
+        self.trab.pedir_verificacao()
+
+    def _esperando_login(self) -> None:
+        self.lb_conexao.setText("● faça o login na janela do robô (Chrome) — conecta sozinho")
+        self.lb_conexao.setStyleSheet("color: #d4a300; font-weight: 600;")
 
     def _conexao(self, ok: bool, produtores: list) -> None:
         self.bt_sgcor.setEnabled(not self.executando)
@@ -514,7 +514,7 @@ class Janela(QMainWindow):
             i = self.ed_consultor.findText(atual)
             self.ed_consultor.setCurrentIndex(i if i >= 0 else -1)
         else:
-            self.lb_conexao.setText("● sem login — entre na janela do robô e verifique de novo")
+            self.lb_conexao.setText("● não conectado — veja o log abaixo e clique em Verificar de novo")
             self.lb_conexao.setStyleSheet("color: #f0533f; font-weight: 600;")
 
     def executar(self) -> None:
@@ -537,7 +537,7 @@ class Janela(QMainWindow):
         self.bt_executar.setEnabled(False)
         self.bt_sgcor.setEnabled(False)
         self.bt_pausar.setEnabled(True)
-        self.pedir_execucao.emit(sel, produtor)
+        self.trab.pedir_execucao(sel, produtor)
 
     def _decidir(self, acao: str) -> None:
         self.barra_conf.setVisible(False)
@@ -597,12 +597,11 @@ class Janela(QMainWindow):
             QMessageBox.information(self, "Robô em andamento", "Pare o lote (Parar lote) antes de fechar o app.")
             ev.ignore()
             return
+        self.leitor.cancelar.set()
         self.thread.quit()
-        self.thread.wait(3000)
-        # o Playwright só pode ser fechado na thread em que foi aberto
-        QMetaObject.invokeMethod(self.trab, "encerrar", Qt.BlockingQueuedConnection)
-        self.thread_robo.quit()
-        self.thread_robo.wait(3000)
+        self.thread.wait(15000)
+        # o Playwright só pode ser fechado na thread em que foi aberto: ela mesma fecha o navegador e termina
+        self.trab.finalizar()
         self.estado.fechar()
         super().closeEvent(ev)
 

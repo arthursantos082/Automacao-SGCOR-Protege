@@ -237,7 +237,7 @@ F1 sozinha já entrega valor: um relatório "o que está pronto para cadastrar e
 ## 12. Decisões em aberto
 
 Nenhuma. F0 mapeada (`docs/f0-mapa-sgcor.md`); F1 concluída (leitura, regras, tela, coberturas + dicionário validado).
-F2 construída (robô Playwright + Chromium, perfil em `%LOCALAPPDATA%\SGCOR-Renovacoes\perfil-sgcor`): verificar conexão
+F2 construída (robô Playwright + Chrome instalado (Q53), perfil em `%LOCALAPPDATA%\SGCOR-Renovacoes\perfil-sgcor`): verificar conexão
 e carregar produtores, buscar e escolher a apólice, preencher a 1ª tela (Q52) e esperar; Pular/Parar/Pausar; prints e
 log locais com limpeza de 90 dias. Testada offline na página salva do SGCOR; **falta o 1º teste real** (Q39/Q45).
 
@@ -268,6 +268,8 @@ log locais com limpeza de 90 dias. Testada offline na página salva do SGCOR; **
 | Q49 | Porto "Responsabilidade civil" = SGCOR "RESPONSABILIDADE CIVIL" genérica (≠ RC operações) | 18/11/2026 |
 | Q50 | Porto "Despesas fixas" / "Lucros cessantes" = mesmo tipo de lucros cessantes/despesas fixas do SGCOR | 18/11/2026 |
 | Q51 | Cobertura do item sem par na proposta: LMI 0 → ignora; LMI > 0 → pendência | 18/11/2026 |
+| Q53 | Navegador do robô = **Google Chrome instalado**, com perfil próprio (substitui a Q35: o Chromium do Playwright não é assinado e o Controle Inteligente de Aplicativos do Windows 11 o bloqueia). Cada máquina precisa ter o Chrome; alternativa configurável: Edge | 18/11/2026 |
+| F2 | "Verificar conexão" espera o consultor logar na janela do robô e conecta sozinho (até 5 min); o robô roda numa thread Python própria (o laço do Qt quebrava o Playwright no 2º comando) | 18/11/2026 |
 | Q52 | 1ª tela: o robô preenche **só os campos marcados pelo consultor** (Proposta, Apólice, Apólice Baixa comissão, Vigência, "Confirma as datas de vigência?" marcada, Comissão, Prêmio Total, IOF, Prêmio Líquido, Forma de Cobrança, Parcelas, 1ª Parcela–Vencimento, Emitida); o resto fica como veio. O aviso de datas que o SGCOR abre no Avançar é confirmado só se as datas forem as da config | 18/11/2026 |
 | Q3 | Chave de busca = **CNPJ** da proposta; apólice anterior escolhe a linha | 18/11/2026 |
 | Q4 | Cotação nº (Tokio) / Nº do orçamento (Porto) → campo "Proposta" | 18/11/2026 |

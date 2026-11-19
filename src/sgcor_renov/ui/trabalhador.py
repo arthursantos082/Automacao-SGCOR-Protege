@@ -1,7 +1,11 @@
-"""Roda o robô numa thread própria (o Playwright síncrono fica sempre na mesma thread).
+"""Roda o robô numa thread Python própria, que só executa comandos de uma fila.
 
-A tela manda ordens por sinais (verificar, executar) e decisões por uma fila thread-safe (Continuar/Pular/Parar),
-porque durante a conferência a thread do robô fica parada esperando a decisão do consultor.
+Por que não um QThread: o Playwright síncrono usa um laço asyncio interno; se o laço de eventos do Qt roda na
+mesma thread entre um comando e outro, o 2º comando quebra ("loop is not the running loop") e o app trava.
+Aqui a thread do robô fica parada em `queue.get()` entre comandos e nunca devolve o controle ao Qt.
+
+A tela chama verificar()/executar()/encerrar() (enfileiram comandos) e decidir() (Continuar/Pular/Parar/Retomar);
+o robô avisa a tela por sinais Qt (entregues na thread da tela).
 """
 from __future__ import annotations
 
@@ -13,7 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, Signal
 
 from ..config import Config
 from ..estado import pasta_dados
@@ -64,6 +68,7 @@ def configurar_log(sinal) -> None:
 class Trabalhador(QObject):
     linha_log = Signal(str)
     conexao = Signal(bool, object)          # logado, [(id, nome)] produtores
+    esperando_login = Signal()
     situacao = Signal(object, str)          # pasta, texto ("Buscando…", "Pulada", "Pendência SGCOR: …")
     aguardando = Signal(object, object)     # Caso, [Campo] — 1ª tela preenchida, esperando o consultor
     login_necessario = Signal()
@@ -74,14 +79,41 @@ class Trabalhador(QObject):
         super().__init__()
         self.cfg = cfg
         self.decisoes: queue.Queue[str] = queue.Queue()
+        self.comandos: queue.Queue[tuple] = queue.Queue()
         self.pausa = threading.Event()        # setado = pausar ao terminar a lotérica atual (Q47)
         self.robo: Robo | None = None
+        self._thread = threading.Thread(target=self._laco, name="robo-sgcor", daemon=True)
+        self._thread.start()
 
-    # chamados da thread da tela (thread-safe)
+    # ---------------------------------------------------------------- chamados da thread da tela
+
+    def pedir_verificacao(self) -> None:
+        self.comandos.put(("verificar",))
+
+    def pedir_execucao(self, casos: list[Caso], produtor: str) -> None:
+        self.comandos.put(("executar", casos, produtor))
+
     def decidir(self, acao: str) -> None:       # "continuar" | "pular" | "parar" | "retomar"
         self.decisoes.put(acao)
 
-    # ---------------------------------------------------------------- slots (thread do robô)
+    def finalizar(self, espera_s: float = 10) -> None:
+        """Fecha o navegador do robô (na thread dele) e encerra a thread."""
+        self.decisoes.put("parar")
+        self.comandos.put(("sair",))
+        self._thread.join(espera_s)
+
+    def _laco(self) -> None:
+        while True:
+            cmd, *args = self.comandos.get()
+            if cmd == "sair":
+                self.encerrar()
+                return
+            try:
+                getattr(self, cmd)(*args)
+            except Exception as e:   # nunca deixar a thread do robô morrer
+                log.error("Erro inesperado no robô (%s): %s", cmd, e)
+
+    # ---------------------------------------------------------------- na thread do robô
 
     def _robo(self) -> Robo:
         if self.robo is None:
@@ -90,17 +122,28 @@ class Trabalhador(QObject):
         return self.robo
 
     def verificar(self) -> None:
+        r = self._robo()
         try:
-            r = self._robo()
-            if r.verificar():
+            def esperando():
+                s = self.cfg.espera_login
+                prazo = f"{s // 60} min" if s >= 60 else f"{s} s"
+                log.info("O SGCOR pediu login: entre com o seu usuário na janela do robô (Chrome). "
+                         "Ela conecta sozinha assim que o login terminar (até %s).", prazo)
+                self.esperando_login.emit()
+
+            if r.verificar(ao_esperar=esperando):
                 prods = r.produtores()
                 log.info("Conectado ao SGCOR. %d produtores carregados.", len(prods))
                 self.conexao.emit(True, prods)
             else:
-                log.info("SGCOR sem login: faça o login na janela do robô e clique em Verificar de novo.")
+                log.info("O login não foi feito a tempo. Clique em Verificar conexão para tentar de novo.")
                 self.conexao.emit(False, [])
+        except FalhaRobo as e:
+            log.error("%s", e)
+            self.conexao.emit(False, [])
         except Exception as e:
-            log.error("Erro ao verificar a conexão: %s", e)
+            log.error("Erro ao verificar a conexão: %s", str(e).splitlines()[0] if str(e) else type(e).__name__)
+            r.fechar()          # nunca reaproveitar um navegador em estado desconhecido
             self.conexao.emit(False, [])
 
     def executar(self, casos: list[Caso], produtor: str) -> None:
@@ -180,7 +223,6 @@ class Trabalhador(QObject):
             if atual.strip() != c.valor.strip():
                 log.info("%s: consultor alterou “%s”: robô pôs “%s”, ficou “%s”.", caso.nome, c.rotulo, c.valor, atual)
 
-    @Slot()
     def encerrar(self) -> None:
         if self.robo:
             try:

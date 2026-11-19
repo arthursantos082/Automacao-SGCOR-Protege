@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import pickle
+import threading
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
@@ -43,6 +44,7 @@ class Leitor(QObject):
         self.arquivo_cache = arquivo_cache or pasta_dados() / "cache-leitura.pickle"
         self.versao = _versao()
         self._cache: dict[Path, tuple[tuple, tuple, Caso]] = self._carregar_cache()
+        self.cancelar = threading.Event()   # setado ao fechar o app: para de esperar as pastas restantes
 
     def _carregar_cache(self) -> dict:
         try:
@@ -88,16 +90,25 @@ class Leitor(QObject):
             self.progresso.emit(feitos, total, "")
             if reler:
                 trabalhadores = max(1, min(len(reler), (os.cpu_count() or 2) - 1))
-                with ProcessPoolExecutor(max_workers=trabalhadores) as ex:
+                ex = ProcessPoolExecutor(max_workers=trabalhadores)
+                try:
                     futuros = {ex.submit(_analisar, p, s, self.cfg, ajustes.get(p)): (p, ass, aj)
                                for p, s, ass, aj in reler}
                     for fut in as_completed(futuros):
+                        if self.cancelar.is_set():
+                            break
                         pasta, ass, aj = futuros[fut]
                         caso = fut.result()
                         self._cache[pasta] = (ass, aj, caso)
                         resultado[pasta] = caso
                         feitos += 1
                         self.progresso.emit(feitos, total, pasta.name)
+                finally:
+                    # ao fechar o app: descarta o que ainda não começou e não espera as pastas restantes
+                    ex.shutdown(wait=not self.cancelar.is_set(), cancel_futures=True)
+                if self.cancelar.is_set():
+                    self._salvar_cache()   # guarda o que já foi lido
+                    return
 
             vivos = {p for p, _ in alvos}
             for velho in set(self._cache) - vivos:
