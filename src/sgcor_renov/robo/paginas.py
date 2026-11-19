@@ -289,24 +289,28 @@ class Ajuste:
     url_alterar: str
 
 
-def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic
-                     ) -> tuple[list[Ajuste], list[str], list[str]]:
-    """Q8/Q57: casa por tipo (dicionário). Devolve (ajustes de LMI a fazer, pendências, avisos).
-    Cobertura nova na proposta → ignora; cobertura do item que sumiu da proposta → deixa como está (avisos).
-    proposta = [(Cobertura, chave)] já classificada na F1."""
+AJUSTAR_PADRAO = ("incendio", "valores_interior", "valores_transito")
+
+
+def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic,
+                     ajustar: tuple[str, ...] = AJUSTAR_PADRAO) -> tuple[list[Ajuste], list[str], list[str]]:
+    """Q59: só os tipos em `ajustar` (Incêndio, Valores no interior, Valores em trânsito) têm o LMI ajustado;
+    todas as outras coberturas ficam como vieram no SGCOR. Devolve (ajustes de LMI, pendências, avisos).
+    Desses tipos: nova na proposta → ignora; sumiu da proposta → fica como está (avisos, Q57);
+    mais de uma no item do SGCOR → pendência. proposta = [(Cobertura, chave)] já classificada na F1."""
     pend: list[str] = []
     avisos: list[str] = []
     por_tipo: dict[str, list[CoberturaSgcor]] = {}
     for c in sgcor:
         t = dic.tipo_de(c.nome, "sgcor")
-        if t:
+        if t and t.chave in ajustar:
             por_tipo.setdefault(t.chave, []).append(c)
+    sgcor = [c for v in por_tipo.values() for c in v]
     ajustes: list[Ajuste] = []
     usados: set[int] = set()
     for cob, chave in proposta:
-        if chave is None:
-            pend.append(f"Cobertura da proposta sem equivalência: “{cob.nome}”")
-            continue
+        if chave not in ajustar:
+            continue                                   # Q59: fica como veio no SGCOR
         alvos = por_tipo.get(chave, [])
         if not alvos:
             avisos.append(f"cobertura da proposta não existe no item do SGCOR, ignorada: “{cob.nome}” R$ {cob.lmi}")

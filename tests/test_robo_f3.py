@@ -49,15 +49,32 @@ def test_plano_ajusta_so_o_que_mudou():
         ("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", D("51460"), D("30000"))]
 
 
-def test_plano_pendencias_e_avisos():
-    proposta = [_cob("Danos Elétricos", "5000", "danos_eletricos"), _cob("Coisa nova", "1", None)]
-    sgcor = [_sg("ROUBO E FURTO MEDIANTE ARROMBAMENTO", "5000")]                  # LMI > 0 sumiu da proposta
+def test_plano_so_mexe_em_incendio_e_valores():
+    # Q59: só Incêndio e Valores (interior/trânsito); o resto fica como veio, sem pendência nem aviso
+    proposta = [_cob("Danos Elétricos", "5000", "danos_eletricos"), _cob("Coisa nova", "1", None),
+                _cob("DESPESAS FIXAS", "5000", "lucros_cessantes"),
+                _cob("Incêndio, Raio, Explosão", "90000", "incendio"),
+                _cob("Valores Em Trânsito - Lotérica", "20000", "valores_transito")]
+    sgcor = [_sg("ROUBO E FURTO MEDIANTE ARROMBAMENTO", "5000"),
+             _sg("DANOS ELÉTRICOS", "3000"),
+             _sg("LUCROS CESSANTES", "2000"), _sg("LUCROS CESSANTES - DESPESAS FIXAS", "2000"),   # caso real
+             _sg("INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO, FUMAÇA E QUEDA DE AERONAVES", "60000"),
+             _sg("GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO", "30000")]
     ajustes, pend, avisos = plano_coberturas(proposta, sgcor, DIC)
-    assert ajustes == []
-    assert pend == ["Cobertura da proposta sem equivalência: “Coisa nova”"]          # só isso para o robô
-    # Q57: nova na proposta → ignora; sumiu da proposta → fica como está
-    assert any("não existe no item do SGCOR, ignorada" in a and "Danos" in a for a in avisos)
-    assert any("não está na proposta nova, mantida" in a and "ROUBO" in a for a in avisos)
+    assert pend == []
+    assert [(a.nome_sgcor, a.de, a.para) for a in ajustes] == [
+        ("INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO, FUMAÇA E QUEDA DE AERONAVES", D("60000"), D("90000"))]
+    # Valores em trânsito novo na proposta → ignora; Valores no interior sumiu da proposta → mantém (Q57)
+    assert len(avisos) == 2
+    assert any("ignorada" in a and "Trânsito" in a for a in avisos)
+    assert any("mantida" in a and "INTERIOR" in a for a in avisos)
+
+
+def test_plano_pendencia_so_se_incendio_ou_valores_repetido_no_sgcor():
+    proposta = [_cob("Incêndio", "90000", "incendio")]
+    sgcor = [_sg("INCÊNDIO, RAIO, EXPLOSÃO", "60000"), _sg("INCÊNDIO, EXPLOSÃO, FUMAÇA E QUEDA DE", "60000")]
+    _, pend, _ = plano_coberturas(proposta, sgcor, DIC)
+    assert len(pend) == 1 and "Mais de uma cobertura" in pend[0]
 
 
 def test_parcelas_com_tabelas_aninhadas_e_conferencia():

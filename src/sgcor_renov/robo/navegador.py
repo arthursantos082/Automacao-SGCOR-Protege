@@ -297,7 +297,7 @@ class Robo:
             f"popup.php?op=propostasItensCoberturas&form=listar&propostaId={proposta_id}&propostaItemId={itens[0]}")
         self.ir(url_lista_cob, popup=True)
         sgcor = ler_coberturas_item(self.page.content())
-        ajustes, pend, avisos = plano_coberturas(caso.coberturas, sgcor, dic)
+        ajustes, pend, avisos = plano_coberturas(caso.coberturas, sgcor, dic, self.cfg.coberturas_ajustar)
         self.print_(caso, "coberturas_antes")
         if pend:
             raise FalhaRobo("Coberturas: " + " | ".join(pend))
@@ -318,7 +318,8 @@ class Robo:
             log.info("%s: LMI de “%s” %s → %s", caso.nome, a.nome_sgcor, a.de, a.para)
         # confere a lista de novo
         self.ir(url_lista_cob, popup=True)
-        depois, pend, _ = plano_coberturas(caso.coberturas, ler_coberturas_item(self.page.content()), dic)
+        depois, pend, _ = plano_coberturas(caso.coberturas, ler_coberturas_item(self.page.content()), dic,
+                                          self.cfg.coberturas_ajustar)
         self.print_(caso, "coberturas_depois")
         if depois or pend:
             raise FalhaRobo("Coberturas não ficaram iguais à proposta depois de salvar")

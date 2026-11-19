@@ -10,6 +10,7 @@ from pathlib import Path
 # no .exe (PyInstaller) a pasta config/ fica ao lado do AutoCOR.exe, editável pela TI
 RAIZ = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 PADRAO = RAIZ / "config" / "padrao.toml"
+AJUSTAR_PADRAO = ("incendio", "valores_interior", "valores_transito")
 
 
 @dataclass
@@ -34,6 +35,9 @@ class Config:
     url_sgcor: str = "https://grupoprotege.sgcor.com.br/"
     navegador: str = "chrome"
     espera_login: int = 300
+    # Q59: só estes tipos de cobertura têm o LMI ajustado; o resto fica como veio no SGCOR
+    coberturas_ajustar: tuple[str, ...] = AJUSTAR_PADRAO
+    repositorio: str = "arthursantos082/Automacao-SGCOR-Protege"   # Releases com as atualizações
 
     def bonus_para(self, comissao: int) -> Decimal | None:
         for f in self.bonus:
@@ -59,4 +63,7 @@ def carregar(caminho: Path = PADRAO) -> Config:
         url_sgcor=url if url.endswith("/") else url + "/",
         navegador=navegador,
         espera_login=espera_login,
+        # config antiga (instalada antes da 1.1.0) não tem a seção: vale o padrão
+        coberturas_ajustar=tuple(dados.get("coberturas", {}).get("ajustar", AJUSTAR_PADRAO)),
+        repositorio=str(dados.get("atualizacao", {}).get("repositorio", "arthursantos082/Automacao-SGCOR-Protege")),
     )

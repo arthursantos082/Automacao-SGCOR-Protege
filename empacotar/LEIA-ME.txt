@@ -9,7 +9,9 @@ Não precisa instalar Python nem nada além do Google Chrome: tudo já vem nesta
    se você quer um atalho na área de trabalho. Depois, esta pasta pode ser apagada.
 ("Só abrir desta vez" usa o AutoCOR daqui mesmo, sem instalar.)
 
-ATUALIZAR: abra o AutoCOR.exe da versão nova e clique em "Instalar". A pasta config que
+ATUALIZAR: a partir da 1.1.0 o AutoCOR avisa sozinho quando há versão nova (ou botão
+"Verificar atualização") e se atualiza. Na 1.0.0, ou à mão: abra o AutoCOR.exe da versão
+nova e clique em "Atualizar". A pasta config que
 já estava instalada é mantida; a da versão nova fica em config.novo para comparar.
 
 REMOVER: Configurações > Aplicativos > Aplicativos instalados > AutoCOR > Desinstalar.

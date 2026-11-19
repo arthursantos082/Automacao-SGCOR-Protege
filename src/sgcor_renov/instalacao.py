@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 NOME = "AutoCOR"
-VERSAO = "1.0.0"
+VERSAO = "1.1.0"
 EDITOR = "Grupo Protege"
 CHAVE_UNINSTALL = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{NOME}"
 CSIDL_COMMON_DESKTOP, CSIDL_COMMON_PROGRAMS, CSIDL_PROGRAM_FILES = 0x19, 0x17, 0x26
@@ -67,9 +67,23 @@ def _admin() -> bool:
         return False
 
 
-def _como_admin(*args: str) -> bool:
+def _como_admin(*args: str, exe: str | None = None) -> bool:
     params = " ".join(f'"{a}"' for a in args)
-    return ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1) > 32
+    return ctypes.windll.shell32.ShellExecuteW(None, "runas", exe or sys.executable, params, None, 1) > 32
+
+
+def abrir_instalador(exe: Path) -> bool:
+    """Atualização: abre o AutoCOR.exe novo (baixado) como administrador para se instalar."""
+    return _como_admin("--instalar", exe=str(exe))
+
+
+def versao_instalada() -> str | None:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, CHAVE_UNINSTALL) as k:
+            return str(winreg.QueryValueEx(k, "DisplayVersion")[0])
+    except OSError:
+        return None
 
 
 def _atalho(lnk: Path, exe: Path) -> None:
@@ -126,6 +140,11 @@ def _aviso(texto: str, erro: bool = False) -> None:
 
 
 def _esperar_fechar() -> bool:
+    import time
+    for _ in range(30):                 # na atualização, o app antigo está fechando: dá um tempo antes de pedir
+        if not _outros_autocor_abertos():
+            return True
+        time.sleep(0.5)
     while _outros_autocor_abertos():
         if not _pergunta(f"Feche o {NOME} que está aberto antes de continuar.", "Já fechei", "Cancelar"):
             return False
@@ -140,13 +159,17 @@ def instalar(origem: Path, destino: Path) -> None:
     _registrar(destino)
     _atalho(pasta_especial(CSIDL_COMMON_PROGRAMS) / f"{NOME}.lnk", exe)
     extra = ""
-    if _pergunta(f"Criar um atalho do {NOME} na área de trabalho?", "Criar atalho", "Não"):
-        _atalho(pasta_especial(CSIDL_COMMON_DESKTOP) / f"{NOME}.lnk", exe)
+    lnk_desktop = pasta_especial(CSIDL_COMMON_DESKTOP) / f"{NOME}.lnk"
+    if lnk_desktop.exists():            # atualização: já tem atalho, só renova (não pergunta de novo)
+        _atalho(lnk_desktop, exe)
+        extra = " e na área de trabalho"
+    elif _pergunta(f"Criar um atalho do {NOME} na área de trabalho?", "Criar atalho", "Não"):
+        _atalho(lnk_desktop, exe)
         extra = " e na área de trabalho"
     if (destino / "config.novo").exists():
         extra += ("\n\nA configuração que já estava instalada foi mantida (config). A da versão nova ficou em "
                   "config.novo, para comparar.")
-    if _pergunta(f"{NOME} instalado em {destino}.\nAtalho criado no Menu Iniciar{extra}.", f"Abrir o {NOME}",
+    if _pergunta(f"{NOME} {VERSAO} instalado em {destino}.\nAtalho criado no Menu Iniciar{extra}.", f"Abrir o {NOME}",
                  "Fechar"):
         subprocess.Popen(["explorer.exe", str(exe)])   # pelo Explorer: abre como o usuário, sem administrador
 
@@ -190,8 +213,14 @@ def tratar(args: list[str]) -> bool:
             return True
         if instalado_em(pasta, destino) or "--portatil" in args:
             return False
-        if _pergunta(f"O {NOME} ainda não está instalado neste computador.\n\nInstalar em {destino}?\n"
-                     f"(o Windows vai pedir permissão de administrador)", "Instalar", "Só abrir desta vez"):
+        atual = versao_instalada() if (destino / f"{NOME}.exe").exists() else None
+        if atual:
+            texto, botao = (f"O {NOME} {atual} está instalado neste computador.\n\nAtualizar para a versão {VERSAO}?\n"
+                            f"(o Windows vai pedir permissão de administrador; a configuração é mantida)", "Atualizar")
+        else:
+            texto, botao = (f"O {NOME} ainda não está instalado neste computador.\n\nInstalar em {destino}?\n"
+                            f"(o Windows vai pedir permissão de administrador)", "Instalar")
+        if _pergunta(texto, botao, "Só abrir desta vez"):
             if not _como_admin("--instalar"):
                 _aviso("A instalação precisa de permissão de administrador.", erro=True)
             return True

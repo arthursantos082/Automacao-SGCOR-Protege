@@ -6,18 +6,21 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QTableView,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSpinBox, QSplitter,
+    QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from .. import atualizacao, instalacao
 from ..config import carregar
+from ..instalacao import VERSAO
 from ..estado import Ajuste, Estado
 from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
@@ -53,11 +56,15 @@ def abrir_no_windows(caminho: Path) -> None:
 
 class Janela(QMainWindow):
     pedir_leitura = Signal(object, object)   # raízes, ajustes
+    atualizacao_consultada = Signal(object, object, bool)   # Release | None, erro | None, silencioso
+    download_progresso = Signal(int, int)
+    download_fim = Signal(object, object)                    # exe novo | None, erro | None
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{NOME} — renovações lotéricas → SGCOR")
-        self.resize(1400, 820)
+        self.setWindowTitle(f"{NOME} {VERSAO} — renovações lotéricas → SGCOR")
+        self.setMinimumSize(900, 560)
+        self._tamanho_inicial()
         self.cfg = carregar()
         self.estado = Estado()
         self.settings = QSettings()   # usa ORG/APP do QApplication e o formato padrão (registro; arquivo nos testes)
@@ -70,6 +77,9 @@ class Janela(QMainWindow):
         self._iniciar_leitor()
         self._iniciar_robo()
         self._iniciar_observador()
+        self.atualizacao_consultada.connect(self._atualizacao_consultada, Qt.QueuedConnection)
+        self.download_progresso.connect(self._progresso_download, Qt.QueuedConnection)
+        self.download_fim.connect(self._download_fim, Qt.QueuedConnection)
         QTimer.singleShot(0, self._inicio)
 
     # ------------------------------------------------------------------ montagem
@@ -99,6 +109,10 @@ class Janela(QMainWindow):
         bt_tutorial.setToolTip("Abre o tutorial: como organizar as pastas e usar o robô")
         bt_tutorial.clicked.connect(self.mostrar_tutorial)
         cl.addWidget(bt_tutorial)
+        bt_atualizar = QPushButton("Verificar atualização")
+        bt_atualizar.setToolTip(f"Você está na versão {VERSAO}. Procura versão nova no GitHub.")
+        bt_atualizar.clicked.connect(lambda: self.checar_atualizacao(silencioso=False))
+        cl.addWidget(bt_atualizar)
         externo.addWidget(cabecalho)
 
         corpo = QWidget()
@@ -173,15 +187,21 @@ class Janela(QMainWindow):
         self.tabela.verticalHeader().setVisible(False)
         self.tabela.setAlternatingRowColors(True)
         cab = self.tabela.horizontalHeader()
-        cab.setSectionResizeMode(QHeaderView.ResizeToContents)
-        cab.setSectionResizeMode(3, QHeaderView.Stretch)
+        cab.setSectionResizeMode(QHeaderView.ResizeToContents)   # nomes inteiros; em tela pequena, rola na horizontal
+        cab.setStretchLastSection(True)
         self.tabela.selectionModel().currentRowChanged.connect(lambda cur, _: self._mostrar(cur))
 
-        split = QSplitter(Qt.Horizontal)
-        split.addWidget(self.tabela)
-        split.addWidget(self._painel_detalhe())
-        split.setSizes([950, 450])
-        raiz.addWidget(split, 1)
+        # tudo redimensionável: tabela | detalhe (horizontal) e, embaixo, o log (vertical)
+        self.split_h = QSplitter(Qt.Horizontal)
+        self.split_h.setChildrenCollapsible(False)
+        self.split_h.addWidget(self.tabela)
+        self.split_h.addWidget(self._painel_detalhe())
+        self.split_h.setStretchFactor(0, 3)
+        self.split_h.setStretchFactor(1, 1)
+        self.split_v = QSplitter(Qt.Vertical)
+        self.split_v.setChildrenCollapsible(False)
+        self.split_v.addWidget(self.split_h)
+        raiz.addWidget(self.split_v, 1)
 
         # rodapé: modo + executar
         rodape = QHBoxLayout()
@@ -231,9 +251,12 @@ class Janela(QMainWindow):
 
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMaximumHeight(110)
+        self.log.setMinimumHeight(50)
         self.log.setPlaceholderText("Log do robô")
-        raiz.addWidget(self.log)
+        self.split_v.addWidget(self.log)
+        self.split_v.setStretchFactor(0, 5)
+        self.split_v.setStretchFactor(1, 1)
+        self._restaurar_divisorias()
 
         self.setCentralWidget(central)
         self.progresso = QProgressBar()
@@ -246,6 +269,81 @@ class Janela(QMainWindow):
         if not self.settings.value("tutorial_ocultar", False, type=bool):
             self.mostrar_tutorial()
         self.ler()
+        if self._instalado():
+            QTimer.singleShot(3000, lambda: self.checar_atualizacao(silencioso=True))
+
+    # ------------------------------------------------------------------ atualização
+
+    @staticmethod
+    def _instalado() -> bool:
+        return getattr(sys, "frozen", False) and instalacao.instalado_em(Path(sys.executable).parent,
+                                                                         instalacao.destino_padrao())
+
+    def checar_atualizacao(self, silencioso: bool) -> None:
+        if not self._instalado():
+            if not silencioso:
+                QMessageBox.information(self, "Atualização", "A atualização automática só funciona no AutoCOR "
+                                                             "instalado (C:\\Program Files\\AutoCOR).")
+            return
+
+        def consultar():
+            try:
+                self.atualizacao_consultada.emit(atualizacao.ultima_release(self.cfg.repositorio), None, silencioso)
+            except Exception as e:   # noqa: BLE001 — sem internet/GitHub fora: não atrapalha o uso
+                self.atualizacao_consultada.emit(None, e, silencioso)
+        threading.Thread(target=consultar, daemon=True).start()
+
+    def _atualizacao_consultada(self, release, erro, silencioso: bool) -> None:
+        if erro or not atualizacao.tem_nova(VERSAO, release):
+            if not silencioso:
+                QMessageBox.information(self, "Atualização", f"Não consegui consultar o GitHub: {erro}" if erro
+                                        else f"Você já está na versão mais nova ({VERSAO}).")
+            return
+        if self.executando:
+            self.statusBar().showMessage(f"Versão {release.versao} disponível: atualize depois do lote "
+                                         f"(Verificar atualização).", 15000)
+            return
+        tam = f"{release.tamanho / 2**20:.0f} MB" if release.tamanho else ""
+        r = QMessageBox.question(self, "Atualização disponível",
+                                 f"A versão {release.versao} do {NOME} está disponível (você tem a {VERSAO}).\n\n"
+                                 f"{release.notas[:600]}\n\nAtualizar agora? Baixa {tam}, fecha o {NOME} e instala "
+                                 f"(o Windows vai pedir permissão de administrador).",
+                                 QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if r == QMessageBox.Yes:
+            self._baixar(release)
+
+    def _baixar(self, release) -> None:
+        self.dlg_download = QProgressDialog(f"Baixando o {NOME} {release.versao}…", "Cancelar", 0, 100, self)
+        self.dlg_download.setWindowTitle("Atualização")
+        self.dlg_download.setWindowModality(Qt.WindowModal)
+        self.dlg_download.setMinimumDuration(0)
+        self.dlg_download.setValue(0)
+        cancelar = threading.Event()
+        self.dlg_download.canceled.connect(cancelar.set)
+
+        def baixar():
+            try:
+                exe = atualizacao.baixar(release, lambda f, t: self.download_progresso.emit(f, t), cancelar.is_set)
+                self.download_fim.emit(exe, None)
+            except Exception as e:   # noqa: BLE001
+                self.download_fim.emit(None, e)
+        threading.Thread(target=baixar, daemon=True).start()
+
+    def _progresso_download(self, feito: int, total: int) -> None:
+        if total:
+            self.dlg_download.setValue(min(99, feito * 100 // total))
+
+    def _download_fim(self, exe, erro) -> None:
+        self.dlg_download.reset()
+        if erro:
+            QMessageBox.warning(self, "Atualização", f"Não consegui baixar a atualização:\n{erro}")
+            return
+        if exe is None:
+            return   # cancelado
+        if not instalacao.abrir_instalador(exe):
+            QMessageBox.warning(self, "Atualização", "A atualização precisa de permissão de administrador.")
+            return
+        self.close()   # libera os arquivos; o instalador novo espera este fechar e substitui
 
     def mostrar_tutorial(self) -> None:
         dlg = Tutorial(self, RECURSOS / "logo-protege.png", self.settings.value("tutorial_ocultar", False, type=bool))
@@ -270,8 +368,49 @@ class Janela(QMainWindow):
         grade.addWidget(bt, linha, 2)
         return ed
 
-    def _painel_detalhe(self) -> QWidget:
+    def _tamanho_inicial(self) -> None:
+        """Ocupa ~90% da tela disponível (qualquer resolução); em tela pequena, abre maximizada."""
+        tela = QGuiApplication.primaryScreen()
+        if tela is None:
+            self.resize(1400, 820)
+            return
+        g = tela.availableGeometry()
+        self.resize(int(g.width() * 0.9), int(g.height() * 0.9))
+        self.move(g.x() + (g.width() - self.width()) // 2, g.y() + (g.height() - self.height()) // 2)
+        if g.width() < 1366 or g.height() < 768:
+            self.setWindowState(Qt.WindowMaximized)
+
+    def _divisorias(self) -> list[QSplitter]:
+        return [self.split_h, self.split_v, self.split_det]
+
+    def _restaurar_divisorias(self) -> None:
+        for i, s in enumerate(self._divisorias()):
+            estado = self.settings.value(f"divisoria_{i}")
+            if estado is not None:
+                s.restoreState(estado)
+
+    def _guardar_divisorias(self) -> None:
+        for i, s in enumerate(self._divisorias()):
+            self.settings.setValue(f"divisoria_{i}", s.saveState())
+
+    @staticmethod
+    def _secao(titulo: str, conteudo: QWidget) -> QWidget:
         w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 4, 0, 0)
+        lay.setSpacing(2)
+        lay.addWidget(QLabel(titulo))
+        lay.addWidget(conteudo, 1)
+        return w
+
+    def _painel_detalhe(self) -> QWidget:
+        """Painel da direita: rola quando não cabe, e as listas são redimensionáveis (arrastar as divisórias)."""
+        rolagem = QScrollArea()
+        rolagem.setWidgetResizable(True)
+        rolagem.setFrameShape(QFrame.NoFrame)
+        rolagem.setMinimumWidth(320)
+        w = QWidget()
+        rolagem.setWidget(w)
         lay = QVBoxLayout(w)
         self.lb_titulo = QLabel("Selecione uma lotérica")
         self.lb_titulo.setStyleSheet("font-size: 15px; font-weight: 600;")
@@ -283,6 +422,7 @@ class Janela(QMainWindow):
         for k in ("Seguradora", "CNPJ", "Apólice anterior", "Proposta nº", "Vigência", "Parcelas / forma",
                   "Cobrança SGCOR", "Prêmio líquido", "IOF", "Prêmio total", "Comissão → bônus"):
             lb = QLabel("—")
+            lb.setWordWrap(True)
             lb.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.info[k] = lb
             self.form_info.addRow(k + ":", lb)
@@ -293,20 +433,14 @@ class Janela(QMainWindow):
         self.lb_combinado.setStyleSheet("color: #444; font-style: italic;")
         lay.addWidget(self.lb_combinado)
 
-        lay.addWidget(QLabel("Pendências"))
         self.ls_pend = QListWidget()
-        self.ls_pend.setMaximumHeight(110)
-        self.ls_pend.setWordWrap(True)
-        lay.addWidget(self.ls_pend)
-        lay.addWidget(QLabel("Avisos"))
         self.ls_avisos = QListWidget()
-        self.ls_avisos.setMaximumHeight(110)
-        self.ls_avisos.setWordWrap(True)
-        lay.addWidget(self.ls_avisos)
-        lay.addWidget(QLabel("Coberturas da proposta (LMI)"))
         self.ls_cob = QListWidget()
-        self.ls_cob.setMaximumHeight(130)
-        lay.addWidget(self.ls_cob)
+        for ls in (self.ls_pend, self.ls_avisos, self.ls_cob):
+            ls.setWordWrap(True)
+            ls.setMinimumHeight(48)
+            ls.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            ls.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
 
         box = QGroupBox("Resolver (o que o consultor confirmou)")
         f = QFormLayout(box)
@@ -329,7 +463,18 @@ class Janela(QMainWindow):
         botoes.addWidget(self.bt_aplicar)
         botoes.addWidget(self.bt_desfazer)
         f.addRow(botoes)
-        lay.addWidget(box)
+
+        self.split_det = QSplitter(Qt.Vertical)
+        self.split_det.setChildrenCollapsible(False)
+        self.split_det.setHandleWidth(8)
+        for titulo, conteudo in (("Pendências", self.ls_pend), ("Avisos", self.ls_avisos),
+                                 ("Coberturas da proposta (LMI) — ✎ = o robô ajusta no SGCOR", self.ls_cob)):
+            self.split_det.addWidget(self._secao(titulo, conteudo))
+        self.split_det.addWidget(box)
+        for i, peso in enumerate((1, 1, 2, 0)):
+            self.split_det.setStretchFactor(i, peso)
+        self.split_det.setMinimumHeight(420)
+        lay.addWidget(self.split_det, 1)
 
         abrir = QHBoxLayout()
         self.bt_pasta = QPushButton("Abrir pasta")
@@ -342,10 +487,9 @@ class Janela(QMainWindow):
         self.bt_acordo.clicked.connect(lambda: self._atual and self._atual.acordo and abrir_no_windows(self._atual.acordo))
         self.bt_prop.clicked.connect(lambda: self._atual and self._abrir_proposta())
         lay.addLayout(abrir)
-        lay.addStretch(1)
         self._atual: Caso | None = None
         self._habilitar_detalhe(False)
-        return w
+        return rolagem
 
     # ------------------------------------------------------------------ leitura
 
@@ -482,10 +626,11 @@ class Janela(QMainWindow):
         self.ls_avisos.clear()
         self.ls_avisos.addItems(c.avisos)
         self.ls_cob.clear()
-        for cob, chave in c.coberturas:
-            it = QListWidgetItem(f"R$ {formatar_dinheiro(cob.lmi):>12}   {cob.nome}" + ("" if chave else "   ⚠ sem equivalência"))
-            if not chave:
-                it.setForeground(QColor("#f0533f"))
+        for cob, chave in c.coberturas:   # Q59: só Incêndio e Valores são ajustados; o resto fica como no SGCOR
+            ajusta = chave in self.cfg.coberturas_ajustar
+            it = QListWidgetItem(f"{'✎' if ajusta else '  '} R$ {formatar_dinheiro(cob.lmi):>12}   {cob.nome}")
+            if not ajusta:
+                it.setForeground(QColor("#8b949e"))
             self.ls_cob.addItem(it)
 
         a = self.estado.ajuste(c.pasta) if c.pasta.is_dir() else None
@@ -678,6 +823,7 @@ class Janela(QMainWindow):
                 self.statusBar().showMessage("Terminando a lotérica atual; o app fecha em seguida…")
             ev.ignore()
             return
+        self._guardar_divisorias()
         self.leitor.cancelar.set()
         self.thread.quit()
         self.thread.wait(15000)

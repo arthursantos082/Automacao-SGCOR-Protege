@@ -6,7 +6,7 @@ O consultor organiza as pastas, confere a lista no AutoCOR e clica em Executar. 
 
 1. busca a apólice anterior;
 2. preenche a 1ª tela;
-3. ajusta as coberturas;
+3. ajusta o LMI de Incêndio e de Valores (no interior e em trânsito); as outras coberturas ficam como estão no SGCOR;
 4. faz o repasse;
 5. confere as parcelas;
 6. anexa o acordo e a proposta;
@@ -52,7 +52,9 @@ O pacote `AutoCOR.zip` já traz tudo o que é preciso. **Não é preciso instala
 3. O AutoCOR se copia para `C:\Program Files\AutoCOR`, cria o atalho no Menu Iniciar e **pergunta se você quer um atalho na área de trabalho**. Depois disso, a pasta descompactada pode ser apagada.
 4. Para remover, use **Configurações > Aplicativos > Aplicativos instalados > AutoCOR > Desinstalar**. Os dados do consultor ficam guardados.
 
-Atualizar funciona do mesmo jeito: abra o `AutoCOR.exe` novo e clique em Instalar. A pasta `config\` que a TI já ajustou é mantida, e a da versão nova fica em `config.novo\` para comparar.
+**Atualizações.** A partir da 1.1.0, o AutoCOR instalado procura versão nova sempre que abre (ou pelo botão **Verificar atualização**). Se houver, ele baixa, fecha e se atualiza; o Windows pede permissão de administrador. As máquinas que ainda estão na **1.0.0** não têm esse recurso e precisam atualizar uma vez à mão: baixe o `AutoCOR.zip` da última Release, abra o `AutoCOR.exe` e clique em **Atualizar**.
+
+Atualizar à mão funciona do mesmo jeito: abra o `AutoCOR.exe` novo e clique em Atualizar. A pasta `config\` que a TI já ajustou é mantida, e a da versão nova fica em `config.novo\` para comparar.
 
 O botão **Só abrir desta vez** roda o AutoCOR da própria pasta, sem instalar.
 
@@ -62,7 +64,7 @@ O .exe não tem assinatura digital. Se o Windows mostrar "aplicativo não reconh
 
 | Arquivo | O que tem |
 |---|---|
-| `padrao.toml` | datas da campanha (vigência e 1ª parcela), tabela de bônus por comissão, códigos das formas de cobrança, endereço do SGCOR e IDs de companhia e ramo |
+| `padrao.toml` | datas da campanha (vigência e 1ª parcela), tabela de bônus por comissão, códigos das formas de cobrança, coberturas que o robô ajusta, repositório das atualizações, endereço do SGCOR e IDs de companhia e ramo |
 | `coberturas.toml` | dicionário de coberturas Porto/Tokio ↔ SGCOR (por tipo) |
 
 Depois de editar algum desses arquivos, feche e abra o AutoCOR.
