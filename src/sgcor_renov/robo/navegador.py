@@ -331,16 +331,39 @@ class Robo:
         if len(urls) != 1:
             raise FalhaRobo(f"A renovação tem {len(urls)} repasses; esperado 1")
         self.ir(self._url_completa(urls[0]))     # = lápis + "Sim" no aviso de excluir parcelas
+        self.preencher_repasse(caso, produtor)
+        with self.page.expect_navigation(timeout=60000):
+            self._botao("Salvar e Gerar Parcelamento").click()
+        self.esperar_tela()
+        self.print_(caso, "repasse_salvo")
+        log.info("%s: repasse salvo (%s, valor fixo R$ %s) e parcelamento gerado.", caso.nome, produtor,
+                 formatar_dinheiro(caso.bonus))
+
+    def preencher_repasse(self, caso: Caso, produtor: str) -> None:
+        """Formulário do repasse (sem salvar). Ordem importa: produtor → forma → Repasse Sobre → Valor Fixo."""
         pg = self.page
+        forma = pg.locator("#repasseForma")
+        forma_copiada = forma.input_value()      # a que veio copiada da apólice anterior (ex.: NP)
         atual = (pg.locator("#produtorId option:checked").text_content() or "").strip()
         if atual != produtor:
-            # trocar o produtor dispara getInfoProdutor(): um AJAX que LIMPA o repasse e recarrega os padrões dele;
-            # só depois disso dá para preencher o resto
-            pg.locator("#produtorId").select_option(label=produtor)
-            self.esperar_tela()
+            # trocar o produtor dispara getInfoProdutor(): um AJAX que LIMPA o repasse e recarrega os padrões do
+            # produtor. Espera a resposta antes de mexer no resto.
+            with pg.expect_response(lambda r: "acao=getRepasse" in r.url, timeout=30000):
+                pg.locator("#produtorId").select_option(label=produtor)
+            pg.wait_for_timeout(500)                # o callback do AJAX preenche os campos logo depois
             log.info("%s: produtor do repasse trocado de “%s” para “%s”.", caso.nome, atual, produtor)
+        if not forma.input_value():
+            if not forma_copiada:
+                raise FalhaRobo("Forma de Repasse veio vazia no SGCOR")
+            # trocar a forma ESVAZIA "Repasse Sobre" e recarrega as opções por outro AJAX (getRepassesSobre)
+            with pg.expect_response(lambda r: "acao=getRepassesSobre" in r.url, timeout=30000):
+                forma.select_option(forma_copiada, force=True)
+            pg.wait_for_function("() => [...document.querySelectorAll('#repasseSobre option')]"
+                                 ".some(o => o.value === 'VF')", timeout=15000)
+            log.info("%s: Forma de Repasse mantida (%s).", caso.nome, forma_copiada)
         if pg.locator("#repasseSobre").input_value() != "VF":
-            pg.locator("#repasseSobre").select_option("VF")
+            pg.locator("#repasseSobre").select_option("VF", force=True)
+            pg.wait_for_timeout(300)
         valor = pg.locator("#valorFixo")
         valor.wait_for(state="visible")
         # a máscara do SGCOR (MascaraValorMonetario) reage a cada tecla e brigava com a digitação;
@@ -348,17 +371,11 @@ class Robo:
         valor.fill(formatar_dinheiro(caso.bonus))
         valor.dispatch_event("change")
         pg.locator("#radio_definirParcelasVF_0").check()   # Parcela Única
-        if not pg.locator("#repasseForma").input_value():
-            raise FalhaRobo("Forma de Repasse veio vazia no SGCOR")
+        if not forma.input_value() or pg.locator("#repasseSobre").input_value() != "VF":
+            raise FalhaRobo("Forma de Repasse/Repasse Sobre não ficaram preenchidos")
         if normalizar_valor(valor.input_value()) != normalizar_valor(formatar_dinheiro(caso.bonus)):
             raise FalhaRobo(f"Valor Fixo não aceitou {formatar_dinheiro(caso.bonus)}")
         self.print_(caso, "repasse_preenchido")
-        with pg.expect_navigation(timeout=60000):
-            self._botao("Salvar e Gerar Parcelamento").click()
-        self.esperar_tela()
-        self.print_(caso, "repasse_salvo")
-        log.info("%s: repasse salvo (%s, valor fixo R$ %s) e parcelamento gerado.", caso.nome, produtor,
-                 formatar_dinheiro(caso.bonus))
 
     def parcelas(self, caso: Caso, proposta_id: str) -> None:
         self.ir(self._url_completa(f"?op=parcelasCompletas&form=listar&propostaId={proposta_id}&cadastro=true"))
