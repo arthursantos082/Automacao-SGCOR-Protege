@@ -45,9 +45,16 @@ O AutoCOR abre com um tutorial, que também pode ser aberto no botão **Como usa
 
 O pacote `AutoCOR.zip` já traz tudo o que é preciso. **Não é preciso instalar Python** nem nenhuma outra dependência. A única exigência é o **Google Chrome**, que o robô usa para operar o SGCOR.
 
-1. Descompacte `AutoCOR.zip` em uma pasta fixa, por exemplo `C:\Program Files\AutoCOR`. Mantenha `AutoCOR.exe`, `_internal\` e `config\` juntos.
-2. Crie um atalho do `AutoCOR.exe` na área de trabalho do consultor.
-3. Se o Windows avisar que o aplicativo não é reconhecido (o .exe não tem assinatura digital), libere-o uma vez.
+1. Descompacte o `AutoCOR.zip` em qualquer lugar e abra o `AutoCOR.exe`.
+2. Ele avisa que ainda não está instalado. Clique em **Instalar** e aceite a permissão de administrador que o Windows pede.
+3. O AutoCOR se copia para `C:\Program Files\AutoCOR`, cria o atalho no Menu Iniciar e **pergunta se você quer um atalho na área de trabalho**. Depois disso, a pasta descompactada pode ser apagada.
+4. Para remover, use **Configurações > Aplicativos > Aplicativos instalados > AutoCOR > Desinstalar**. Os dados do consultor ficam guardados.
+
+Atualizar funciona do mesmo jeito: abra o `AutoCOR.exe` novo e clique em Instalar. A pasta `config\` que a TI já ajustou é mantida, e a da versão nova fica em `config.novo\` para comparar.
+
+O botão **Só abrir desta vez** roda o AutoCOR da própria pasta, sem instalar.
+
+O .exe não tem assinatura digital. Se o Windows mostrar "aplicativo não reconhecido", libere-o uma vez. Com o Controle Inteligente de Aplicativos ligado, um .exe sem assinatura pode ser bloqueado; isso aconteceu com um instalador separado que tentamos, e por isso o próprio `AutoCOR.exe` se instala. A solução definitiva é assinar o .exe com um certificado de assinatura de código da empresa.
 
 ### Configuração (`config\`, ao lado do .exe)
 
@@ -85,7 +92,7 @@ Para abrir sem empacotar, use `abrir-app.pyw` (o `criar-atalho.ps1` cria o atalh
 .venv\Scripts\python.exe empacotar\montar.py
 ```
 
-O comando gera `dist\AutoCOR\` (`AutoCOR.exe` + `config\` + `LEIA-ME.txt`) e `dist\AutoCOR.zip` para a TI. As pastas `dist/` e `build/` não vão para o git.
+O comando gera `dist\AutoCOR\` (`AutoCOR.exe` + `config\` + `LEIA-ME.txt`) e `dist\AutoCOR.zip` para a TI. A instalação fica em `src/sgcor_renov/instalacao.py`. As pastas `dist/` e `build/` não vão para o git.
 
 ### Estrutura
 

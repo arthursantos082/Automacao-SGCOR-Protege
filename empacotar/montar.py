@@ -1,4 +1,5 @@
-"""Monta dist/AutoCOR/ (AutoCOR.exe + config/ editável) e dist/AutoCOR.zip para a TI instalar.
+"""Monta dist/AutoCOR/ (AutoCOR.exe + config/ editável) e dist/AutoCOR.zip para a TI. Ao ser aberto fora de
+Program Files, o AutoCOR.exe se instala (Program Files + pergunta pelo atalho na área de trabalho).
 
 Uso (na raiz do repositório):  .venv\\Scripts\\python.exe empacotar\\montar.py
 """
@@ -43,7 +44,7 @@ def main() -> None:
     shutil.copytree(RAIZ / "config", APP / "config", dirs_exist_ok=True)   # editável ao lado do .exe
     shutil.copy2(RAIZ / "empacotar" / "LEIA-ME.txt", APP / "LEIA-ME.txt")
     zipado = shutil.make_archive(str(DIST / "AutoCOR"), "zip", DIST, "AutoCOR")
-    print(f"\nPronto: {APP / 'AutoCOR.exe'}\nPacote para a TI: {zipado}")
+    print(f"\nPrograma: {APP / 'AutoCOR.exe'}\nPacote para a TI: {zipado} (o AutoCOR.exe se instala ao abrir)")
 
 
 if __name__ == "__main__":

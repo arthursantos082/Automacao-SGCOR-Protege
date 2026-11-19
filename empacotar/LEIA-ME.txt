@@ -1,22 +1,29 @@
 AutoCOR — renovações lotéricas → SGCOR (Grupo Protege)
 =======================================================
 
-INSTALAÇÃO (TI)
-Não precisa instalar Python nem nada além do Google Chrome: tudo já vem dentro desta pasta.
-1. O computador precisa ter o Google Chrome instalado (o robô usa o Chrome).
-2. Copie a pasta AutoCOR inteira para C:\Program Files\AutoCOR (ou outra pasta fixa).
-   Não separe o AutoCOR.exe da pasta _internal nem da pasta config.
-3. Crie um atalho do AutoCOR.exe na área de trabalho do consultor.
+INSTALAÇÃO
+Não precisa instalar Python nem nada além do Google Chrome: tudo já vem nesta pasta.
+1. Abra o AutoCOR.exe desta pasta.
+2. Clique em "Instalar" e aceite a permissão de administrador do Windows.
+3. Ele se instala em C:\Program Files\AutoCOR, cria o atalho no Menu Iniciar e pergunta
+   se você quer um atalho na área de trabalho. Depois, esta pasta pode ser apagada.
+("Só abrir desta vez" usa o AutoCOR daqui mesmo, sem instalar.)
 
-CONFIGURAÇÃO
-- config\padrao.toml: datas da campanha (vigência, 1ª parcela), tabela de bônus,
+ATUALIZAR: abra o AutoCOR.exe da versão nova e clique em "Instalar". A pasta config que
+já estava instalada é mantida; a da versão nova fica em config.novo para comparar.
+
+REMOVER: Configurações > Aplicativos > Aplicativos instalados > AutoCOR > Desinstalar.
+
+CONFIGURAÇÃO (C:\Program Files\AutoCOR\config)
+- padrao.toml: datas da campanha (vigência, 1ª parcela), tabela de bônus,
   formas de cobrança e endereço do SGCOR.
-- config\coberturas.toml: dicionário de coberturas Porto/Tokio ↔ SGCOR.
+- coberturas.toml: dicionário de coberturas Porto/Tokio ↔ SGCOR.
 Depois de editar, feche e abra o AutoCOR.
 
 DADOS LOCAIS (não apagar durante a campanha)
 %LOCALAPPDATA%\SGCOR-Renovacoes: estado (ajustes, renovações pela metade, cadastradas),
 logs e prints do robô (apagados automaticamente após 90 dias) e o perfil do Chrome do robô.
+A desinstalação não apaga esses dados.
 
 USO
 Ao abrir, o AutoCOR mostra um tutorial (também no botão "Como usar").

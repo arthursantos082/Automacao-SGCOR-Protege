@@ -738,7 +738,7 @@ def main() -> int:
         # ícone próprio na barra de tarefas (senão o Windows agrupa com o ícone do Python)
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrupoProtege.AutoCOR")
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)   # a instalação pode ter criado (perguntas)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
     app.setWindowIcon(QIcon(str(RECURSOS / "icone.ico")))
