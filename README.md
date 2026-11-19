@@ -43,6 +43,8 @@ O AutoCOR abre com um tutorial, que também pode ser aberto no botão **Como usa
 
 ## Instalação nas máquinas (TI)
 
+**Download:** baixe o `AutoCOR.zip` da [última Release](https://github.com/arthursantos082/Automacao-SGCOR-Protege/releases/latest). Ele fica fora do git porque passa do limite de 100 MB por arquivo do GitHub.
+
 O pacote `AutoCOR.zip` já traz tudo o que é preciso. **Não é preciso instalar Python** nem nenhuma outra dependência. A única exigência é o **Google Chrome**, que o robô usa para operar o SGCOR.
 
 1. Descompacte o `AutoCOR.zip` em qualquer lugar e abra o `AutoCOR.exe`.
@@ -93,6 +95,12 @@ Para abrir sem empacotar, use `abrir-app.pyw` (o `criar-atalho.ps1` cria o atalh
 ```
 
 O comando gera `dist\AutoCOR\` (`AutoCOR.exe` + `config\` + `LEIA-ME.txt`) e `dist\AutoCOR.zip` para a TI. A instalação fica em `src/sgcor_renov/instalacao.py`. As pastas `dist/` e `build/` não vão para o git.
+
+Para publicar uma versão nova, suba o número em `VERSAO` (`instalacao.py`), gere o .exe e crie a Release:
+
+```powershell
+gh release create v1.0.1 dist\AutoCOR.zip --title "AutoCOR 1.0.1" --notes "O que mudou"
+```
 
 ### Estrutura
 
