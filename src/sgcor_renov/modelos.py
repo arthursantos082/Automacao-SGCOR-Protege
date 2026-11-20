@@ -17,6 +17,7 @@ class OpcaoPagamento:
     premio_liquido: Decimal | None = None  # Porto: muda com a forma (à vista / cartão Porto têm desconto)
     marcada: bool = False  # "(X)" na proposta Tokio — só informativo
     descricao: str = ""
+    calculada: bool = False  # Q62: não está na proposta; calculada pela regra da Porto
 
 
 @dataclass

@@ -151,3 +151,23 @@ def test_vigencia_diferente_e_pendencia_ate_o_consultor_confirmar():
     c3 = Caso(seguradora="PORTO", pasta=Path("."), nome="X", proposta=p3, escolha=Escolha(parcelas=6, forma="boleto"),
               vigencia_confirmada="05/12/2026")
     assert any(t.startswith("Vigência da proposta") for t in aplicar(c3, CFG).pendencias)
+
+
+def test_porto_limites_do_sem_juros_quando_a_proposta_nao_tem_a_linha():
+    # proposta só com 1x boleto: os limites sem juros (boleto/débito 6x, cartão 10x, Cartão Porto 12x) são calculados
+    from sgcor_renov.modelos import OpcaoPagamento, Proposta
+    from sgcor_renov.regras import porto_fora_da_tabela
+    p = Proposta(seguradora="PORTO", premio_liquido=D("1686.18"), iof=D("124.44"), premio_total=D("1810.62"),
+                 opcoes=[OpcaoPagamento("boleto", 1, D("1720.09"), D("0"), D("1720.09"), D("118.22"), D("1601.87"))])
+    for forma, limite in (("boleto", 6), ("debito", 6), ("cartao", 10), ("cartao_porto", 12)):
+        no_limite = porto_fora_da_tabela(p, forma, limite)
+        assert no_limite is not None and no_limite.calculada, (forma, limite)
+        assert porto_fora_da_tabela(p, forma, limite + 1) is None, (forma, limite + 1)    # com juros
+
+
+def test_porto_com_custo_de_apolice_nao_calcula():
+    # custo de apólice ≠ 0: não sei se entra no desconto → não calcula (continua pendência)
+    from sgcor_renov.modelos import Proposta
+    from sgcor_renov.regras import porto_fora_da_tabela
+    p = Proposta(seguradora="PORTO", premio_liquido=D("1686.18"), iof=D("124.44"), premio_total=D("1830.62"))
+    assert porto_fora_da_tabela(p, "cartao", 1) is None

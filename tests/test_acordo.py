@@ -76,7 +76,7 @@ def test_oferta_aceita_so_com_emoji_positivo(resposta):
     assert "" not in e.trecho_parcelas
 
 
-@pytest.mark.parametrize("resposta", ["😢", "", "🤔 vou ver", "👎"])
+@pytest.mark.parametrize("resposta", ["😢", "", "🤔 vou ver", "👎", ".", "!", "...", "!!", "️", "👍 vou ver"])
 def test_outros_emojis_nao_aceitam(resposta):
     e = escolha_combinada([(A, "Podemos seguir em 10x no boleto sem juros?"), (C, resposta)])
     assert e.parcelas is None

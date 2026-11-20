@@ -32,3 +32,16 @@ def test_pela_metade_fica_laranja_e_some_ao_cadastrar():
 
 def test_icone_copiar_desenhado():
     assert not icone_copiar().isNull()
+
+
+def test_filtro_pela_metade():
+    from sgcor_renov.ui.tabela import FiltroCasos
+    pronta, metade, pendente = _caso("A"), _caso("B"), _caso("C", ["x"])
+    m = ModeloCasos()
+    m.definir([pronta, metade, pendente], {metade.pasta: "1"})
+    f = FiltroCasos()
+    f.setSourceModel(m)
+    visiveis = lambda: [f.index(r, 0).data(Qt.UserRole).nome for r in range(f.rowCount())]
+    for status, esperado in (("Metade", ["B"]), ("Pronto", ["A"]), ("Pendente", ["C"]), ("", ["A", "B", "C"])):
+        f.definir(status=status)
+        assert visiveis() == esperado, status

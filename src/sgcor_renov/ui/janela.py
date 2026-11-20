@@ -177,7 +177,8 @@ class Janela(QMainWindow):
         filtros = QHBoxLayout()
         self.grupo_filtro = QButtonGroup(self)
         self.bt_filtros = {}
-        for chave, rotulo in (("", "Todas"), ("Pronto", "Prontas"), ("Pendente", "Pendentes")):
+        for chave, rotulo in (("", "Todas"), ("Pronto", "Prontas"), ("Pendente", "Pendentes"),
+                              ("Metade", "Pela metade")):
             b = QPushButton(rotulo)
             b.setCheckable(True)
             b.setChecked(chave == "")
@@ -754,10 +755,11 @@ class Janela(QMainWindow):
 
     def _atualizar_rodape(self) -> None:
         casos = self.modelo.casos
-        prontos = sum(1 for c in casos if c.status == "Pronto")
+        cat = [self.modelo.categoria(c) for c in casos]
         self.bt_filtros[""].setText(f"Todas ({len(casos)})")
-        self.bt_filtros["Pronto"].setText(f"Prontas ({prontos})")
-        self.bt_filtros["Pendente"].setText(f"Pendentes ({len(casos) - prontos})")
+        self.bt_filtros["Pronto"].setText(f"Prontas ({cat.count('Pronto')})")
+        self.bt_filtros["Pendente"].setText(f"Pendentes ({cat.count('Pendente')})")
+        self.bt_filtros["Metade"].setText(f"Pela metade ({cat.count('Metade')})")
         n = len(self.modelo.selecionados())
         self.lb_contagem.setText(f"{n} selecionada(s)")
         self.bt_executar.setEnabled(n > 0 and not self.executando)
@@ -877,6 +879,9 @@ class Janela(QMainWindow):
     def _situacao(self, pasta: Path, texto: str) -> None:
         m = re.match(r"Pela metade \(ID (\d+)", texto)
         self.modelo.definir_situacao(pasta, texto, m.group(1) if m else None)
+        if m or texto.startswith("Cadastrada"):   # mudou de categoria: contadores e filtro
+            self._atualizar_rodape()
+            self.filtro.definir()
         if self._atual and self._atual.pasta == pasta:
             self.lb_titulo.setText(f"{self._atual.nome}  ·  {texto}")
 

@@ -19,7 +19,7 @@ from ..estado import Ajuste, pasta_dados
 from ..modelos import Caso
 from ..scanner import analisar_pasta, assinatura, pastas_de, seguradora_da_pasta, soltos
 
-VERSAO_LEITURA = "8"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+VERSAO_LEITURA = "9"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
 
 
 def _versao() -> str:

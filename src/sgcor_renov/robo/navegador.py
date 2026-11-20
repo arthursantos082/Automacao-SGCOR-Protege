@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -95,8 +96,9 @@ class Robo:
 
     # ------------------------------------------------------------ sessão
 
-    def ir(self, url: str, popup: bool = False) -> None:
-        """Vai para a URL. Popups (popup.php) não têm o menu com 'Sair': nelas, sessão expirada = tela de senha."""
+    def ir(self, url: str, popup: bool = False, esperar: bool = True) -> None:
+        """Vai para a URL. Popups (popup.php) não têm o menu com 'Sair': nelas, sessão expirada = tela de senha.
+        esperar=False: não espera a rede ficar parada (≥ 0,5 s) — quem chama espera o elemento de que precisa."""
         self.abrir()
         self.page.goto(url, wait_until="load")
         if popup:
@@ -104,7 +106,8 @@ class Robo:
                 raise SessaoExpirada()
         elif not self.logado():
             raise SessaoExpirada()
-        self.esperar_tela()
+        if esperar:
+            self.esperar_tela()
 
     def esperar_tela(self, timeout_ms: int = 30000) -> None:
         """O SGCOR mostra '#conteudo-carregando' e esconde o formulário enquanto carrega dados por AJAX.
@@ -405,13 +408,19 @@ class Robo:
                 continue
             if arq.stat().st_size > 10 * 1024 * 1024:
                 raise FalhaRobo(f"{arq.name} tem mais de 10 MB (limite do SGCOR)")
-            self.ir(self._url_completa(f"popup.php?op=anexos&form=cadastrar&propostaId={proposta_id}"), popup=True)
-            self.page.locator("input[name='descricao']").first.fill(descricao)
+            t0 = time.monotonic()
+            # anexos mais rápidos: o formulário só precisa da Descrição e do arquivo, então espera o campo aparecer
+            # em vez de a rede ficar parada; e depois de salvar não espera a página assentar, porque o próximo passo
+            # já abre outra página. A lista do fim (com espera completa) confere que os dois anexos estão lá.
+            self.ir(self._url_completa(f"popup.php?op=anexos&form=cadastrar&propostaId={proposta_id}"), popup=True,
+                    esperar=False)
+            campo = self.page.locator("input[name='descricao']").first
+            campo.wait_for(state="visible")
+            campo.fill(descricao)
             self.page.locator("input[type='file'][name='arquivo']").first.set_input_files(str(arq))
             with self.page.expect_navigation(timeout=60000):
                 self._salvar().click()
-            self.esperar_tela()
-            log.info("%s: anexo %s enviado (%s).", caso.nome, descricao, arq.name)
+            log.info("%s: anexo %s enviado (%s) em %.1f s.", caso.nome, descricao, arq.name, time.monotonic() - t0)
         self.ir(lista, popup=True)
         faltando = {"ACORDO", "PROPOSTA"} - anexos_existentes(self.page.content())
         self.print_(caso, "anexos")

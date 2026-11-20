@@ -109,6 +109,10 @@ class ModeloCasos(QAbstractTableModel):
                 self.dataChanged.emit(self.index(r, 1), self.index(r, 1))
                 return
 
+    def categoria(self, c: Caso) -> str:
+        """Para os filtros e contadores: "Metade" (pela metade no SGCOR), "Pronto" ou "Pendente"."""
+        return "Metade" if c.pasta in self.metade else c.status
+
     def rotulo_status(self, c: Caso) -> str:
         if c.pasta in self.metade:
             return f"Pela metade (ID {self.metade[c.pasta]})"
@@ -224,19 +228,21 @@ class ModeloCasos(QAbstractTableModel):
 class FiltroCasos(QSortFilterProxyModel):
     def __init__(self):
         super().__init__()
-        self.status = ""      # "" | "Pronto" | "Pendente"
+        self.status = ""      # "" | "Pronto" | "Pendente" | "Metade"
         self.texto = ""
 
     def definir(self, status: str | None = None, texto: str | None = None) -> None:
+        """Muda o filtro; sem argumentos, só reaplica (ex.: uma lotérica mudou de categoria)."""
+        self.beginFilterChange()          # invalidateFilter() está obsoleto no Qt 6.10+
         if status is not None:
             self.status = status
         if texto is not None:
             self.texto = texto.strip().upper()
-        self.invalidateFilter()
+        self.endFilterChange()
 
     def filterAcceptsRow(self, row, parent):
         c: Caso = self.sourceModel().casos[row]
-        if self.status and c.status != self.status:
+        if self.status and self.sourceModel().categoria(c) != self.status:
             return False
         if self.texto:
             p = c.proposta

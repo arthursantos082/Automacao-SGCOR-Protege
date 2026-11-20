@@ -94,9 +94,12 @@ _ACEITE = re.compile(r"\b(sim|pode|podemos|fechad[oa]|fechar|fecha|ok|isso|aceit
                      r"de acordo|t[áa] bom|tudo bem|pode ser)\b", re.I)
 # cliente que responde a oferta só com um emoji de "positivo" (Q63). No PDF do Histórico de Atendimento o 👍 sai
 # como caractere do Font Awesome (U+F087 thumbs-o-up / U+F164 thumbs-up); no e-mail, como emoji de verdade.
-_EMOJI_ACEITE = {"": "👍", "": "👍", "\U0001F44D": "👍", "\U0001F44C": "👌", "✅": "✅",
-                 "✔": "✔️", "\U0001F91D": "🤝"}
-_SO_EMOJI_ACEITE = re.compile("^[" + "".join(_EMOJI_ACEITE) + r"\s️\U0001F3FB-\U0001F3FF!.]+$")
+_EMOJI_ACEITE = {"\uf087": "👍", "\uf164": "👍", "\U0001F44D": "👍", "\U0001F44C": "👌", "\u2705": "✅",
+                 "\u2714": "✔️", "\U0001F91D": "🤝"}
+_EMOJI = "[" + "".join(_EMOJI_ACEITE) + "]"
+_ENFEITE = "[\\s\ufe0f\U0001F3FB-\U0001F3FF!.]"   # espaço, variação de emoji, tom de pele, "!" e "."
+# só emoji(s) de aceite, com enfeites em volta; precisa ter PELO MENOS um emoji ("." ou "!" sozinho não é aceite)
+_SO_EMOJI_ACEITE = re.compile(f"^{_ENFEITE}*{_EMOJI}(?:{_EMOJI}|{_ENFEITE})*$")
 _FECHO_PADRAO = re.compile(r"a ap[óo]lice e os boletos", re.I)  # frase-padrão do consultor, não indica forma
 _N = re.compile(r"(?<![\d/.,])(\d{1,2})\s*(?:x|vezes|parcelas?|parc\b)", re.I)
 _A_VISTA = re.compile(r"\b[àa]\s+vista\b|parcela [úu]nica|pagamento [úu]nico", re.I)

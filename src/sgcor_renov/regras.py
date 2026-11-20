@@ -48,7 +48,7 @@ def porto_fora_da_tabela(p, forma: str, parcelas: int) -> OpcaoPagamento | None:
     total = liq + iof
     demais = _cent(total / parcelas)
     return OpcaoPagamento(forma=forma, parcelas=parcelas, primeira=total - demais * (parcelas - 1), demais=demais,
-                          premio_total=total, iof=iof, premio_liquido=liq,
+                          premio_total=total, iof=iof, premio_liquido=liq, calculada=True,
                           descricao=f"{parcelas}x {forma} (calculado: {regra})")
 
 # forma falada pelo cliente → formas aceitas na tabela da proposta
@@ -140,7 +140,7 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
         caso.premio_liquido, caso.iof, caso.premio_total = opcao.premio_liquido, opcao.iof, opcao.premio_total
         if caso.premio_liquido is None:
             caso.pendencias.append(f"Prêmio líquido de “{opcao.descricao}” difere do Resumo do Prêmio (juros?) — conferir")
-        elif opcao.premio_total != p.premio_total and "calculado" not in opcao.descricao:
+        elif opcao.premio_total != p.premio_total and not opcao.calculada:
             caso.avisos.append(f"Valores da forma escolhida diferem do demonstrativo geral "
                                f"(total {opcao.premio_total} × {p.premio_total}) — usados os da forma")
 
