@@ -11,13 +11,14 @@ bloqueou o AutoCOR-Setup.exe de arquivo único, mas deixa o AutoCOR.exe rodar).
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 NOME = "AutoCOR"
-VERSAO = "1.1.4"
+VERSAO = "1.1.5"
 EDITOR = "Grupo Protege"
 CHAVE_UNINSTALL = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{NOME}"
 CSIDL_COMMON_DESKTOP, CSIDL_COMMON_PROGRAMS, CSIDL_PROGRAM_FILES = 0x19, 0x17, 0x26
@@ -40,22 +41,55 @@ def instalado_em(pasta: Path, destino: Path) -> bool:
         return False
 
 
+class ArquivoEmUso(Exception):
+    """Algum arquivo do AutoCOR instalado está em uso (AutoCOR aberto, antivírus…): nada foi apagado."""
+
+
+def _renomear(de: Path, para: Path, tentativas: int = 10, espera: float = 1.0) -> None:
+    """No Windows, renomear uma pasta falha se algum arquivo dela estiver em uso — e aí NADA muda. Tenta algumas
+    vezes (o antivírus costuma soltar o arquivo em segundos)."""
+    import time
+    for i in range(tentativas):
+        try:
+            os.replace(de, para)
+            return
+        except PermissionError as e:
+            if i == tentativas - 1:
+                raise ArquivoEmUso(str(e)) from e
+            time.sleep(espera)
+
+
 def copiar_programa(origem: Path, destino: Path) -> None:
-    """Copia a pasta do programa; troca _internal inteira; preserva config\\ já existente (nova → config.novo)."""
+    """Copia a pasta do programa; troca _internal inteira; preserva config\\ já existente (nova → config.novo).
+    Q79: tudo ou nada. Antes apagava _internal no lugar e, se um arquivo estivesse em uso, parava no meio — a
+    instalação ficava sem metade dos módulos (caso real: "hazmat/bindings" e depois "charset_normalizer.cd").
+    Agora: renomeia a _internal antiga (se algo estiver em uso, o Windows recusa e nada é apagado), copia a nova e só
+    no fim apaga a antiga; se a cópia falhar, volta a antiga."""
     destino.mkdir(parents=True, exist_ok=True)
-    if (destino / "_internal").exists():
-        shutil.rmtree(destino / "_internal")
-    for item in origem.iterdir():
-        alvo = destino / item.name
-        if item.name == "config.novo":
-            continue
-        if item.name == "config" and alvo.exists():
-            shutil.rmtree(destino / "config.novo", ignore_errors=True)
-            shutil.copytree(item, destino / "config.novo")
-        elif item.is_dir():
-            shutil.copytree(item, alvo, dirs_exist_ok=True)
-        else:
-            shutil.copy2(item, alvo)
+    interno, velho = destino / "_internal", destino / "_internal.antigo"
+    shutil.rmtree(velho, ignore_errors=True)            # sobra de uma atualização anterior
+    if interno.exists():
+        _renomear(interno, velho)
+    try:
+        for item in origem.iterdir():
+            alvo = destino / item.name
+            if item.name == "config.novo":
+                continue
+            if item.name == "config" and alvo.exists():
+                shutil.rmtree(destino / "config.novo", ignore_errors=True)
+                shutil.copytree(item, destino / "config.novo")
+            elif item.is_dir():
+                shutil.copytree(item, alvo, dirs_exist_ok=True)
+            else:
+                shutil.copy2(item, alvo)
+    except Exception as e:
+        if velho.exists():                              # volta como estava
+            shutil.rmtree(interno, ignore_errors=True)
+            os.replace(velho, interno)
+        if isinstance(e, PermissionError):
+            raise ArquivoEmUso(str(e)) from e
+        raise
+    shutil.rmtree(velho, ignore_errors=True)            # se algo ainda estiver preso, sai na próxima atualização
 
 
 # ---------------------------------------------------------------- Windows (precisa de administrador)
@@ -154,7 +188,15 @@ def _esperar_fechar() -> bool:
 def instalar(origem: Path, destino: Path) -> None:
     if not _esperar_fechar():
         return
-    copiar_programa(origem, destino)
+    while True:
+        try:
+            copiar_programa(origem, destino)
+            break
+        except ArquivoEmUso as e:
+            if not _pergunta(f"Não deu para atualizar: um arquivo do {NOME} está em uso.\n\nFeche todos os {NOME} "
+                             f"abertos (se precisar, pelo Gerenciador de Tarefas) e tente de novo. Nada foi apagado: a "
+                             f"versão instalada continua funcionando.\n\nDetalhe: {e}", "Tentar de novo", "Cancelar"):
+                return
     exe = destino / f"{NOME}.exe"
     _registrar(destino)
     _atalho(pasta_especial(CSIDL_COMMON_PROGRAMS) / f"{NOME}.lnk", exe)
