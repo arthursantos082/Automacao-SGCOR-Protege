@@ -134,7 +134,8 @@ _OPCAO_PORTO = re.compile(
 def ler_porto(texto: str) -> Proposta:
     p = Proposta(seguradora="PORTO", produto=produto(texto))
 
-    if m := re.search(r"NÚMERO DO ORÇAMENTO\s*\n\s*\S+\s+(\d+)", texto):
+    # Orçamento: "NÚMERO DO ORÇAMENTO\n14/11/2026 118610821"; Proposta de Seguro (Q77): "...\nPROPOSTA DE SEGURO 118653373"
+    if m := re.search(r"NÚMERO DO ORÇAMENTO\s*\n[^\n]*?(?<![\d/.])(\d{6,})(?![\d/])", texto):
         p.numero = m.group(1)
     else:
         p.problemas.append("nº do orçamento não encontrado")
@@ -144,7 +145,10 @@ def ler_porto(texto: str) -> Proposta:
     else:
         p.problemas.append(f"{SEM_APOLICE_ANTERIOR} (Informações da apólice a ser renovada) não encontrado")
 
-    if m := re.search(r"DADOS DO PROPONENTE\s*\n.*\n(.+?)\s+JUR[ÍI]DICA\s+(" + CNPJ + r")", texto):
+    # Orçamento: "DADOS DO PROPONENTE\n<cabeçalho>\n<NOME> JURÍDICA <CNPJ>";
+    # Proposta de Seguro (Q77): "DADOS GERAIS\nPROPONENTE TIPO DE PESSOA CNPJ\n<NOME> JURÍDICA 07285428/0001-77"
+    if m := re.search(r"(?:DADOS DO PROPONENTE\s*\n.*|PROPONENTE\s+TIPO DE PESSOA\s+CNPJ)\s*\n(.+?)\s+JUR[ÍI]DICA\s+("
+                      + CNPJ + r")", texto):
         p.razao_social = m.group(1).strip()
         p.cnpj = so_digitos(m.group(2))
     else:
@@ -186,9 +190,31 @@ def ler_porto(texto: str) -> Proposta:
             premio_liquido=total_op - iof_op - custo_op - juros - encargos,
             descricao=f"{m.group(1)} x {m.group(2)}",
         ))
+    if not p.opcoes and (op := _forma_contratada_porto(texto, custo)):
+        p.opcoes.append(op)          # Proposta de Seguro: só a forma contratada, já marcada
     if not p.opcoes:
         p.problemas.append("tabela de Formas de Pagamento não encontrada")
     return p
+
+
+# Q77: a "Proposta de Seguro" da Porto não tem a tabela de opções do Orçamento, só a forma contratada:
+#   FORMA DE PAGAMENTO / 41 - 6 x BOLETO BANCARIO / VALOR DAS PARCELAS /
+#   1º PARCELA DEMAIS PARCELAS(R$) JUROS I.O.F. ENCARGOS / R$ 658,74 R$ 658,75 R$ 0,00 R$ 271,65 R$ 0,00
+_FORMA_CONTRATADA_PORTO = re.compile(
+    r"FORMA DE PAGAMENTO\s*\n\s*(?:\d+\s*-\s*)?(\d{1,2})\s*x\s*(.+?)\s*\n\s*VALOR DAS PARCELAS\s*\n.*\n\s*"
+    + r"\s+".join([rf"R\$\s*({DINHEIRO})"] * 5))
+
+
+def _forma_contratada_porto(texto: str, custo: Decimal | None) -> OpcaoPagamento | None:
+    m = _FORMA_CONTRATADA_PORTO.search(texto)
+    if not m:
+        return None
+    n = int(m.group(1))
+    primeira, demais, juros, iof, encargos = (dinheiro(m.group(i)) for i in range(3, 8))
+    total = primeira + demais * (n - 1)
+    return OpcaoPagamento(forma=_forma_porto(m.group(2)), parcelas=n, primeira=primeira, demais=demais,
+                          premio_total=total, iof=iof, premio_liquido=total - iof - (custo or 0) - juros - encargos,
+                          marcada=True, descricao=f"{n} x {m.group(2).strip()} (forma contratada na proposta)")
 
 
 def ler_proposta(texto: str) -> Proposta:

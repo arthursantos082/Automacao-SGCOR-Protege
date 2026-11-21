@@ -63,3 +63,30 @@ def test_porto_comissao_de_um_digito():
     assert " - CO20 - " in PORTO
     p = ler_porto(PORTO.replace(" - CO20 - ", " - CO5 - "))
     assert p.comissao == 5 and not any("comissão" in x for x in p.problemas)
+
+
+def _proposta_de_seguro_porto() -> str:
+    """Q77: a mesma amostra, no formato "Proposta de Seguro" da Porto (dados fictícios)."""
+    t = PORTO.split("FORMAS DE PAGAMENTO")[0]
+    t = t.replace("NÚMERO DO ORÇAMENTO\n14/11/2026 118600001", "NÚMERO DO ORÇAMENTO\nPROPOSTA DE SEGURO 118600009")
+    t = t.replace("DADOS DO PROPONENTE\nRAZÃO SOCIAL TIPO DE PESSOA CNPJ TELEFONE\n",
+                  "DADOS GERAIS\nPROPONENTE TIPO DE PESSOA CNPJ\n")
+    return t + ("INFORMAÇÃO DE COBRANÇA.\nFORMA DE PAGAMENTO\n41 - 6 x BOLETO BANCARIO\nVALOR DAS PARCELAS\n"
+                "1º PARCELA DEMAIS PARCELAS(R$) JUROS I.O.F. ENCARGOS\n"
+                "R$ 178,98 R$ 178,96 R$ 0,00 R$ 73,80 R$ 0,00\n")
+
+
+def test_porto_proposta_de_seguro_numero_cnpj_e_forma_contratada():
+    t = _proposta_de_seguro_porto()
+    assert "NÚMERO DO ORÇAMENTO\nPROPOSTA DE SEGURO" in t and "DADOS GERAIS" in t      # a troca pegou
+    p = ler_porto(t)
+    assert p.problemas == []
+    assert (p.numero, p.cnpj, p.razao_social) == ("118600009", "11222333000181", "LOTERICA EXEMPLO LTDA")
+    [o] = p.opcoes
+    assert (o.forma, o.parcelas, o.marcada) == ("boleto", 6, True)
+    assert (o.premio_total, o.iof, o.premio_liquido) == (D("1073.78"), D("73.80"), D("999.98"))
+
+
+def test_porto_orcamento_continua_lendo_a_tabela():
+    p = ler_porto(PORTO)
+    assert p.numero == "118600001" and len(p.opcoes) == 4 and not any(o.marcada for o in p.opcoes)

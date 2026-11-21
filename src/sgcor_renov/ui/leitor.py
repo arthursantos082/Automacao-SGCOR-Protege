@@ -20,7 +20,7 @@ from ..modelos import Caso
 from ..scanner import (analisar_pasta, assinatura, cnpj_da_pasta, marcar_ja_cadastradas, pastas_de,
                        seguradora_da_pasta, soltos)
 
-VERSAO_LEITURA = "16"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+VERSAO_LEITURA = "17"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
 
 
 def _versao() -> str:
