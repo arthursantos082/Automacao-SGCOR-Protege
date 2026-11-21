@@ -303,6 +303,10 @@ class Janela(QMainWindow):
         """Ao abrir: tutorial primeiro (a menos que o consultor tenha desligado), depois a leitura das pastas."""
         if not self.settings.value("tutorial_ocultar", False, type=bool):
             self.mostrar_tutorial()
+        from ..pdftexto import ERRO_CRIPTOGRAFIA
+        if ERRO_CRIPTOGRAFIA:   # Q78: os PDFs normais são lidos; só PDF protegido daria erro — mostra a causa
+            self.log.appendPlainText(f"Aviso: o componente de criptografia não carregou nesta máquina; PDFs "
+                                     f"protegidos não serão lidos (os normais, sim). Detalhe: {ERRO_CRIPTOGRAFIA}")
         self.ler()
         if self._instalado():
             QTimer.singleShot(3000, lambda: self.checar_atualizacao(silencioso=True))

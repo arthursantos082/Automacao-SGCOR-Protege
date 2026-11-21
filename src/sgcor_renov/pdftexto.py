@@ -1,10 +1,54 @@
 """Leitura de PDFs: texto corrido e linhas com posição horizontal."""
 from __future__ import annotations
 
+import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 
-import pdfplumber
+
+def _garantir_cryptography() -> str | None:
+    """Q78: o pdfminer importa o `cryptography` logo de cara, mas só o usa para PDF protegido (AES). Se a parte
+    compilada dele ("cryptography/hazmat/bindings/_rust") não carregar numa máquina, TODA leitura de PDF falhava.
+    Aqui, se não carregar, entra um substituto: os PDFs normais (todos os nossos) continuam sendo lidos e só um PDF
+    protegido dá erro. Devolve a mensagem do erro original (para o log), ou None se carregou."""
+    try:
+        from cryptography.hazmat.backends import default_backend  # noqa: F401
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes  # noqa: F401
+        return None
+    except Exception as e:  # ex.: "DLL load failed while importing _rust: …"
+        erro = f"{type(e).__name__}: {e}"
+
+    class _PdfProtegido:
+        def __init__(self, *a, **k):
+            raise RuntimeError(f"PDF protegido: precisa do componente de criptografia, que não carregou nesta "
+                               f"máquina ({erro})")
+
+    class _Qualquer(types.ModuleType):
+        def __getattr__(self, nome):
+            return _PdfProtegido
+
+    for nome in list(sys.modules):          # tira o que ficou pela metade da tentativa
+        if nome == "cryptography" or nome.startswith("cryptography."):
+            del sys.modules[nome]
+    for nome in ("cryptography", "cryptography.hazmat", "cryptography.hazmat.primitives"):
+        m = types.ModuleType(nome)
+        m.__path__ = []                     # é "pacote": permite os submódulos abaixo
+        sys.modules[nome] = m
+    backends = types.ModuleType("cryptography.hazmat.backends")
+    backends.default_backend = lambda: None
+    sys.modules["cryptography.hazmat.backends"] = backends
+    ciphers = _Qualquer("cryptography.hazmat.primitives.ciphers")
+    ciphers.Cipher = _PdfProtegido
+    ciphers.algorithms = _Qualquer("algorithms")
+    ciphers.modes = _Qualquer("modes")
+    sys.modules["cryptography.hazmat.primitives.ciphers"] = ciphers
+    return erro
+
+
+ERRO_CRIPTOGRAFIA = _garantir_cryptography()
+
+import pdfplumber  # noqa: E402  (depois do substituto do cryptography, se precisar)
 
 
 @dataclass
