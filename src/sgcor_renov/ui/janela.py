@@ -27,6 +27,7 @@ from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
 from ..propostas import SEM_APOLICE_ANTERIOR
 from ..regras import onde_pendencia
+from ..scanner import PEND_CNPJ_ACORDO
 from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
 from .tabela import COL_CNPJ, FORMAS, LARANJA, DelegadoCopiar, FiltroCasos, ModeloCasos, icone_copiar
@@ -536,8 +537,16 @@ class Janela(QMainWindow):
         bl_pend = QVBoxLayout(self.botoes_pend)
         bl_pend.setContentsMargins(0, 2, 0, 0)
         bl_pend.setSpacing(4)
+        # Q80: o acordo cita outro CNPJ (cliente com mais de uma lotérica) → o consultor confirma a lotérica
+        self.bt_loterica = QPushButton("Confirmar a lotérica…")
+        self.bt_loterica.setToolTip("O acordo cita outro CNPJ (o cliente pode ter mais de uma lotérica): confirme que "
+                                    "este acordo vale para esta lotérica")
+        self.bt_loterica.clicked.connect(self._confirmar_loterica)
+        self.bt_loterica.setVisible(False)
+        self._amarelo(self.bt_loterica, True)
         bl_pend.addWidget(self.bt_vigencia)
         bl_pend.addWidget(self.bt_apolice)
+        bl_pend.addWidget(self.bt_loterica)
 
         self.split_det = QSplitter(Qt.Vertical)
         self.split_det.setChildrenCollapsible(False)
@@ -729,6 +738,8 @@ class Janela(QMainWindow):
         self.bt_vigencia.setVisible(resolvivel and any(t.startswith("Vigência da proposta") for t in c.pendencias))
         self.bt_apolice.setVisible(resolvivel and any(t.startswith(f"Proposta: {SEM_APOLICE_ANTERIOR}")
                                                       for t in c.pendencias))
+        self.bt_loterica.setVisible(resolvivel and bool(c.proposta and c.proposta.cnpj)
+                                    and any(t.startswith(PEND_CNPJ_ACORDO) for t in c.pendencias))
 
     def _abrir_proposta(self) -> None:
         c = self._atual
@@ -744,7 +755,27 @@ class Janela(QMainWindow):
             proposta=self.cb_proposta.currentData(),
             vigencia=anterior.vigencia if anterior else None,     # não perde as confirmações já feitas
             sem_apolice=anterior.sem_apolice if anterior else False,
+            cnpj_confirmado=anterior.cnpj_confirmado if anterior else None,
         ))
+
+    def _confirmar_loterica(self) -> None:
+        c = self._atual
+        if not c or not c.proposta or not c.proposta.cnpj or not c.pasta.is_dir():
+            return
+        pend = next((t for t in c.pendencias if t.startswith(PEND_CNPJ_ACORDO)), "")
+        citados = pend[pend.find("(") + 1:pend.find(" × ")] if "(" in pend else "outro CNPJ"
+        r = QMessageBox.question(
+            self, "Confirmar a lotérica",
+            f"O acordo cita {citados}, mas a proposta é de {c.proposta.razao_social or c.nome} "
+            f"(CNPJ {formatar_cnpj(c.proposta.cnpj)}).\n\n"
+            "Isso acontece quando o cliente tem mais de uma lotérica.\n\n"
+            "Confirmar que este acordo vale para esta lotérica?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return
+        a = self.estado.ajuste(c.pasta) or Ajuste()
+        a.cnpj_confirmado = c.proposta.cnpj
+        self._salvar_ajuste(a)
 
     def _confirmar_sem_apolice(self) -> None:
         c = self._atual

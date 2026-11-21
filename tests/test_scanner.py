@@ -111,3 +111,34 @@ def test_cnpj_da_pasta_pelo_nome_ou_pela_proposta(tmp_path, monkeypatch):
         (pasta / n).write_bytes(b"%PDF-1.4")
     monkeypatch.setattr(scanner, "texto", lambda p, **k: "HISTÓRICO DE ATENDIMENTO" if p.name == "ACORDO.pdf" else PORTO)
     assert scanner.cnpj_da_pasta(pasta) == ler_porto(PORTO).cnpj
+
+
+# ---- Q80: acordo com CNPJ de outra lotérica do mesmo cliente → "Confirmar a lotérica…"
+
+def _pasta_cnpjs(tmp_path, monkeypatch, cnpjs_acordo, ajuste=None):
+    pasta = tmp_path / "LOTERICA EXEMPLO"
+    pasta.mkdir(parents=True)
+    for n in ("ACORDO.pdf", "X.pdf"):
+        (pasta / n).write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(scanner, "texto", lambda p, **k: "HISTÓRICO DE ATENDIMENTO" if p.name == "ACORDO.pdf" else PORTO)
+    monkeypatch.setattr(scanner.acordo_mod, "ler_acordo", lambda caminho, tipo: (Escolha(6, "boleto"), set(cnpjs_acordo)))
+    monkeypatch.setattr(scanner.cob_mod, "ler", lambda caminho, seg: [])
+    return scanner.analisar_pasta(pasta, "PORTO", CFG, ajuste)
+
+
+def test_cnpj_de_outra_loterica_e_pendencia_ate_confirmar(tmp_path, monkeypatch):
+    from sgcor_renov.estado import Ajuste
+    from sgcor_renov.propostas import ler_porto
+    cnpj = ler_porto(PORTO).cnpj
+    c = _pasta_cnpjs(tmp_path / "a", monkeypatch, {"99888777000166"})
+    [p] = [x for x in c.pendencias if x.startswith(scanner.PEND_CNPJ_ACORDO)]
+    assert "99.888.777/0001-66" in p                                    # mostra o CNPJ que o acordo cita
+    c = _pasta_cnpjs(tmp_path / "b", monkeypatch, {"99888777000166"}, Ajuste(cnpj_confirmado=cnpj))
+    assert not any(x.startswith(scanner.PEND_CNPJ_ACORDO) for x in c.pendencias)
+    assert any("confirmou a lotérica" in a for a in c.avisos)
+    # confirmado para outro CNPJ (a proposta da pasta mudou) → volta a pedir
+    c = _pasta_cnpjs(tmp_path / "c", monkeypatch, {"99888777000166"}, Ajuste(cnpj_confirmado="11111111000111"))
+    assert any(x.startswith(scanner.PEND_CNPJ_ACORDO) for x in c.pendencias)
+    # acordo cita o próprio CNPJ (também) → nada a confirmar
+    c = _pasta_cnpjs(tmp_path / "d", monkeypatch, {cnpj, "99888777000166"})
+    assert not any(x.startswith(scanner.PEND_CNPJ_ACORDO) for x in c.pendencias)

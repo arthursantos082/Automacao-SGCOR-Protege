@@ -79,6 +79,10 @@ def _coberturas(c: Caso, proposta: Path, ajustar: tuple[str, ...]) -> None:
             vistos[t.chave] = cob.nome
 
 
+# Q80: o acordo cita outro CNPJ (cliente com mais de uma lotérica) → o consultor confirma no app
+PEND_CNPJ_ACORDO = "O CNPJ citado no acordo é diferente do CNPJ da proposta"
+
+
 def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
     # Q72: a pasta pode ter o nome da lotérica, o nome + CNPJ, ou só o CNPJ
     nome, cnpj_pasta = separar_cnpj(pasta.name)
@@ -137,7 +141,13 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
         c.acordo = acordos[0]
         c.escolha, cnpjs = acordo_mod.ler_acordo(acordos[0], tipos[acordos[0]])
         if c.proposta and c.proposta.cnpj and cnpjs and c.proposta.cnpj not in cnpjs:
-            c.pendencias.append("O CNPJ citado no acordo é diferente do CNPJ da proposta")
+            citados = ", ".join(formatar_cnpj(x) for x in sorted(cnpjs))
+            msg = f"{PEND_CNPJ_ACORDO} ({citados} × {formatar_cnpj(c.proposta.cnpj)})"
+            if ajuste and ajuste.cnpj_confirmado == c.proposta.cnpj:
+                # Q80: cliente com mais de uma lotérica — o consultor confirmou que o acordo vale para esta
+                c.avisos.append(f"{msg}; o consultor confirmou a lotérica")
+            else:
+                c.pendencias.append(msg)
         if ajuste and c.escolha:
             if ajuste.parcelas:
                 c.escolha.parcelas, c.escolha.ambigua, c.escolha.origem = ajuste.parcelas, False, "consultor"
