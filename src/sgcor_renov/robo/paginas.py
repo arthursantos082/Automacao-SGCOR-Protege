@@ -32,6 +32,13 @@ def url_busca(cfg: Config, cnpj: str, seguradora: str, formatado: bool = True) -
     return f"{cfg.url_sgcor}?op=propostas&form=listar&p={p}"
 
 
+def url_busca_cnpj(cfg: Config, cnpj: str, formatado: bool = True) -> str:
+    """Q71: a mesma pesquisa, só pelo CNPJ (qualquer companhia e ramo)."""
+    campos = {"cpf_cnpj": formatar_cnpj(cnpj) if formatado else so_digitos(cnpj), "tipoCpfCnpj": "segurado"}
+    p = base64.b64encode(urlencode(campos).encode()).decode()
+    return f"{cfg.url_sgcor}?op=propostas&form=listar&p={p}"
+
+
 def url_renovar(cfg: Config, proposta_id: str) -> str:
     return f"{cfg.url_sgcor}?op=propostas&form=alterar&propostaId={proposta_id}&renovar=true"
 
@@ -166,14 +173,28 @@ def _data(s: str) -> date:
     return date(a, m, d)
 
 
-def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config) -> tuple[LinhaApolice | None, str | None]:
+def marca_seguradora(caso: Caso) -> str:
+    return "PORTO" if caso.seguradora == "PORTO" else "TOKIO"
+
+
+def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config,
+                     outros_ramos: bool = False) -> tuple[LinhaApolice | None, str | None]:
     """Q11/Q24/Q30/Q54: filtra CNPJ + companhia + ramo lotérico, descarta Nível Revisão e pega a de vigência
-    mais recente. Devolve (linha, None) ou (None, motivo da pendência)."""
+    mais recente. Devolve (linha, None) ou (None, motivo da pendência).
+    outros_ramos (Q71): qualquer companhia e qualquer ramo de cfg.ramos_renovacao (ex.: a apólice vigente de um CCA
+    está em EMPRESARIAL CAIXA AQUI; a de uma lotérica pode ter vindo de outro ramo ou seguradora)."""
     cnpj = caso.proposta.cnpj if caso.proposta else None
-    marca = "PORTO" if caso.seguradora == "PORTO" else "TOKIO"
-    cand = [l for l in linhas
-            if (not cnpj or l.cnpj == cnpj) and marca in l.companhia.upper() and "LOTÉRICO" in l.ramo.upper()
-            and l.fim]
+    marca = marca_seguradora(caso)
+    if outros_ramos:
+        cand = [l for l in linhas if (not cnpj or l.cnpj == cnpj) and l.fim
+                and any(r in l.ramo.upper() for r in cfg.ramos_renovacao)]
+        if not cand:
+            return None, (f"Nenhuma apólice ({' / '.join(cfg.ramos_renovacao)}) encontrada no SGCOR para o CNPJ, "
+                          "em nenhuma seguradora")
+    else:
+        cand = [l for l in linhas
+                if (not cnpj or l.cnpj == cnpj) and marca in l.companhia.upper() and "LOTÉRICO" in l.ramo.upper()
+                and l.fim]
     if not cand:
         return None, "Nenhuma apólice lotérica desta seguradora encontrada no SGCOR para o CNPJ"
     # Q54: só vale o registro em Produção (bolinha verde); Revisão (bolinha amarela) é desconsiderado
@@ -193,6 +214,35 @@ def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config) -> tup
         return None, (f"A apólice mais recente em Produção (ID {topo.proposta_id}) termina em {topo.fim}, "
                       f"não em {cfg.vigencia_inicio} — conferir no SGCOR")
     return topo, None
+
+
+def vale_procurar_em_outros_ramos(motivo: str | None) -> bool:
+    """Q71: a busca no ramo lotérico da seguradora não achou a apólice que termina quando a nova começa → procura
+    em outros ramos/seguradoras. Não vale quando a renovação já existe (Q30) nem quando há ambiguidade."""
+    return bool(motivo) and (motivo.startswith("Nenhuma apólice lotérica") or " termina em " in motivo)
+
+
+def mudou_de_ramo(ramo_da_renovacao: str | None, caso: Caso) -> bool:
+    """Q73: a renovação ficou num ramo diferente do da proposta? CCA (Caixa Aqui) renovando em Caixa Aqui e
+    lotérica renovando em Lotérico são renovações normais. Sem o ramo na tela → não mexe (renovação normal)."""
+    if not ramo_da_renovacao:
+        return False
+    esperado = "CAIXA AQUI" if caso.proposta and caso.proposta.produto == "caixa_aqui" else "LOTÉRICO"
+    return esperado not in ramo_da_renovacao.upper()
+
+
+def ramo_da_tela(html: str) -> str | None:
+    """Ramo da renovação no cabeçalho "Dados da Apólice" (tela de Itens / incluir cobertura): o texto logo depois
+    da vigência ("31/12/2025 à 31/12/2026" → "EMPRESARIAL CAIXA AQUI")."""
+    i = html.find("Classif. / Ramo")
+    if i < 0:
+        return None
+    textos = [t.strip() for t in re.split(r"<[^>]+>", html[i:i + 6000])]
+    textos = [unescape(t) for t in textos if t]
+    for k, t in enumerate(textos[:-1]):
+        if re.fullmatch(r"\d{2}/\d{2}/\d{4}\s+[àa]\s+\d{2}/\d{2}/\d{4}", t):
+            return textos[k + 1]
+    return None
 
 
 # ---------------------------------------------------------------- 1ª tela (Q52)
@@ -330,6 +380,51 @@ def plano_coberturas(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic,
         if id(c) not in usados and c.lmi > 0:
             avisos.append(f"cobertura do item do SGCOR não está na proposta nova, mantida (LMI R$ {c.lmi}): “{c.nome}”")
     return ajustes, pend, avisos
+
+
+def _nome_igual(a: str) -> str:
+    """Compara nomes de cobertura ignorando acento, caixa e pontuação."""
+    import unicodedata
+    a = unicodedata.normalize("NFKD", a.upper()).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Z0-9]+", " ", a).strip()
+
+
+def linhas_para_incluir(html: str) -> dict[str, str]:
+    """Tabela "Novo" das coberturas do item (mapa §3.1): {ID da cobertura no SGCOR: nome}, na ordem da tela."""
+    return {k: unescape(v) for k, v in re.findall(r'name="dados\[(\d+)\]\[nomeCobertura\]"[^>]*?value="([^"]*)"', html)}
+
+
+@dataclass
+class Inclusao:
+    chave: str              # tipo (incendio, valores_interior…)
+    nome_proposta: str
+    lmi: Decimal
+    nome_sgcor: str
+    cobertura_id: str       # linha da tabela "Novo" (dados[<id>][…])
+
+
+def plano_inclusoes(proposta: list[tuple], sgcor: list[CoberturaSgcor], dic, ajustar: tuple[str, ...],
+                    incluir: dict[str, str], tabela: dict[str, str]) -> tuple[list[Inclusao], list[str]]:
+    """Q71: renovação vinda de outro ramo → os tipos de `ajustar` que estão na proposta e NÃO existem no item são
+    incluídos com o LMI da proposta, na linha padrão do tipo (`incluir`: Incêndio padrão / GERPA). Devolve
+    (inclusões, pendências). Os outros tipos não são incluídos (Q59: só Incêndio e Valores importam)."""
+    no_item = {t.chave for c in sgcor if (t := dic.tipo_de(c.nome, "sgcor"))}
+    por_nome: dict[str, str] = {}
+    for cid, nome in tabela.items():
+        por_nome.setdefault(_nome_igual(nome), cid)          # nomes repetidos: vale a 1ª linha da tela
+    out: list[Inclusao] = []
+    pend: list[str] = []
+    for cob, chave in proposta:
+        if chave not in ajustar or chave in no_item or any(i.chave == chave for i in out):
+            continue
+        alvo = incluir.get(chave)
+        cid = por_nome.get(_nome_igual(alvo)) if alvo else None
+        if cid is None:
+            pend.append(f"Não achei “{alvo or chave}” na lista de coberturas para incluir no SGCOR "
+                        f"(para “{cob.nome}”)")
+            continue
+        out.append(Inclusao(chave, cob.nome, cob.lmi, tabela[cid], cid))
+    return out, pend
 
 
 def url_editar_repasse(html: str) -> list[str]:

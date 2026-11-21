@@ -116,3 +116,93 @@ def test_campos_da_primeira_tela_sao_os_do_consultor():
         "Comissão": "21,00", "Prêmio Total": "1.073,80", "IOF": "73,80", "Prêmio Líquido": "1.000,00",
         "Forma de Cobrança": "1", "Parcelas": "6", "1ª Parcela – Vencimento": "10/01/2027", "Emitida": "18/11/2026",
     }
+
+
+# ---- Q71: apólice anterior em outro ramo (ex.: CCA em EMPRESARIAL CAIXA AQUI) ou de outra seguradora
+
+def test_outros_ramos_acha_a_vigente_no_caixa_aqui():
+    # caso real (WALDINAR): lotérico só tem 2024; a vigente 2025–2026 está no ramo Caixa Aqui
+    from sgcor_renov.robo.paginas import vale_procurar_em_outros_ramos
+    lot = [_l("44066", "31/12/2024", ini="02/02/2024")]
+    linha, motivo = escolher_apolice(lot, _caso(), CFG)
+    assert linha is None and vale_procurar_em_outros_ramos(motivo)
+    largas = lot + [_l("56224", "31/12/2026", ramo="EMPRESARIAL CAIXA AQUI"),
+                    _l("9860", "30/05/2020", ini="30/05/2019", cia="PORTO SEGURO CIA", ramo=""),
+                    _l("7", "31/12/2026", ramo="AUTOMÓVEL")]                       # ramo fora da lista: ignora
+    linha, motivo = escolher_apolice(largas, _caso(), CFG, outros_ramos=True)
+    assert motivo is None and linha.proposta_id == "56224"
+
+
+def test_outros_ramos_nao_vale_para_ja_cadastrada_nem_empate():
+    from sgcor_renov.robo.paginas import vale_procurar_em_outros_ramos
+    assert not vale_procurar_em_outros_ramos(escolher_apolice(
+        [_l("2", "31/12/2026"), _l("9", "31/12/2027", ini="31/12/2026")], _caso(), CFG)[1])        # Q30
+    assert not vale_procurar_em_outros_ramos(escolher_apolice(
+        [_l("1", "31/12/2026"), _l("2", "31/12/2026")], _caso(), CFG)[1])                          # empate
+    assert vale_procurar_em_outros_ramos(escolher_apolice([], _caso(), CFG)[1])                    # nenhuma
+
+
+def test_outros_ramos_acha_de_outra_seguradora():
+    # a busca larga aceita outra companhia; o robô é que para antes de gravar (troca de seguradora não mapeada)
+    linha, motivo = escolher_apolice([_l("5", "31/12/2026", cia="PORTO SEGURO CIA")], _caso(), CFG, outros_ramos=True)
+    assert motivo is None and linha.companhia.startswith("PORTO")
+
+
+def test_ramo_da_tela():
+    from sgcor_renov.robo.paginas import ramo_da_tela
+    html = ('<table><tr><th>Apólice</th><th>Segurado</th><th>Vigência</th><th>Companhia</th>'
+            '<th colspan="2">Classif. / Ramo</th><th>Forma Pagamento</th><th>Nível</th></tr>'
+            '<tr><td>2692424</td><td>LOTERICA X</td><td>31/12/2025 à 31/12/2026</td>'
+            '<td><span> EMPRESARIAL CAIXA AQUI </span></td><td>BOLETO</td></tr></table>')
+    assert ramo_da_tela(html) == "EMPRESARIAL CAIXA AQUI"
+    assert ramo_da_tela("<html>sem cabeçalho</html>") is None
+
+
+def test_plano_inclusoes_usa_incendio_padrao_e_gerpa():
+    from decimal import Decimal as D
+    from sgcor_renov.config import INCLUIR_PADRAO
+    from sgcor_renov.coberturas import Cobertura, Dicionario
+    from sgcor_renov.robo.paginas import CoberturaSgcor, linhas_para_incluir, plano_inclusoes
+    dic = Dicionario.carregar()
+    tabela_html = "".join(f'<input type="hidden" name="dados[{i}][nomeCobertura]" id="" value="{n}">' for i, n in [
+        ("602", "GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO"), ("603", "GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO"),
+        ("461", "GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO"), ("251", "INCÊNDIO"),
+        ("582", "INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO E FUMAÇA"), ("798", "VALORES NO INTERIOR DO ESTABELECIMENTO")])
+    tabela = linhas_para_incluir(tabela_html)
+    assert list(tabela) == ["602", "603", "461", "251", "582", "798"]
+    proposta = [(Cobertura("Incêndio, Raio, Explosão, Implosão E Fumaça", D("80000")), "incendio"),
+                (Cobertura("Valores No Interior Do Estabelecimento - Caixa Aqui", D("40000")), "valores_interior"),
+                (Cobertura("Valores Em Trânsito - Lotérica", D("10000")), "valores_transito"),
+                (Cobertura("Danos Elétricos", D("10000")), "danos_eletricos")]          # fora dos 3: não inclui
+    sgcor = [CoberturaSgcor("INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO E FUMAÇA", D("60000"), "x")]   # incêndio já existe
+    inc, pend = plano_inclusoes(proposta, sgcor, dic, ("incendio", "valores_interior", "valores_transito"),
+                                INCLUIR_PADRAO, tabela)
+    assert pend == []
+    assert [(i.cobertura_id, i.lmi) for i in inc] == [("603", D("40000")), ("602", D("10000"))]   # GERPA; 1ª linha
+    # sem a linha padrão na tabela → pendência (não chuta uma parecida)
+    inc, pend = plano_inclusoes(proposta, sgcor, dic, ("incendio", "valores_interior"), INCLUIR_PADRAO,
+                                {"251": "INCÊNDIO"})
+    assert inc == [] and len(pend) == 1 and "GERPA - SUB. DE VALORES NO INTERIOR" in pend[0]
+
+
+# ---- Q73: CCA (Caixa Aqui) x lotérica — incluir coberturas só quando o ramo mudou de verdade
+
+def test_produto_da_proposta_cca_ou_loterica():
+    from amostras import PORTO, TOKIO
+    from sgcor_renov.propostas import ler_porto, ler_tokio, produto
+    assert ler_porto(PORTO).produto == "loterico" and ler_tokio(TOKIO).produto == "loterico"
+    assert produto("Valores No Interior Do Estabelecimento - Caixa Aqui") == "caixa_aqui"     # Tokio (WALDINAR)
+    assert produto("SEGURO EMPRESA - CCA - CORRESPONDENTE") == "caixa_aqui"                    # Porto (R J R)
+    assert produto("ACCAO LOTÉRICA") == "loterico"                                              # "CCA" só palavra inteira
+
+
+def test_mudou_de_ramo():
+    from sgcor_renov.modelos import Proposta
+    from sgcor_renov.robo.paginas import mudou_de_ramo
+    cca, lot = _caso(), _caso()
+    cca.proposta, lot.proposta = Proposta("TOKIO", produto="caixa_aqui"), Proposta("TOKIO", produto="loterico")
+    assert not mudou_de_ramo("EMPRESARIAL CAIXA AQUI", cca)        # WALDINAR: CCA renovando em Caixa Aqui = normal
+    assert mudou_de_ramo("EMPRESARIAL LOTÉRICO", cca)
+    assert mudou_de_ramo("EMPRESARIAL CAIXA AQUI", lot)            # lotérica vinda de um Caixa Aqui → inclui
+    assert not mudou_de_ramo("EMPRESARIAL LOTÉRICO", lot)
+    assert not mudou_de_ramo(None, lot) and not mudou_de_ramo("", cca)

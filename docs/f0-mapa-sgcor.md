@@ -91,6 +91,31 @@ Barra do popup: **Salvar** (`li#btnSalvar` → `$('#form-formulario').submit()`)
 
 Barra: **Avançar** → `?op=propostas&form=getRepassesPropostaOriginal&cadastro=true&propostaId=<N>`.
 
+### 3.1 Incluir coberturas (mapeado em 21/11/2026, só leitura)
+
+Na lista de coberturas do item, botão **Novo** → `popup.php?op=propostasItensCoberturas&form=cadastrar&propostaId=<N>&propostaItemId=<I>`.
+
+Não é um formulário de uma cobertura: é uma **tabela com todas as coberturas disponíveis** para o item (72 na Tokio, ramo
+Caixa Aqui), uma por linha, cada uma com o ID da cobertura no SGCOR (`<C>`). Colunas: checkbox, Cobertura, Valor/LMI R$,
+Valor/LMI US$, %, Bônus, Franquia R$, Franquia US$, Franquia (texto), Prêmio Líquido R$, Observações.
+
+| Campo (por linha) | Seletor | Uso pelo robô |
+|---|---|---|
+| Marcar para cadastrar | `input[type=checkbox][name="dados[<C>][cadastrar]"]` (`#cobertura_<C>`, valor `t`) | marca a linha (o SGCOR também marca sozinho ao digitar: `marcaCheckboxCobertura(<C>)` no `onkeyup`) |
+| Nome | `input[type=hidden][name="dados[<C>][nomeCobertura]"]` (nome completo) | ler, para casar com a cobertura da proposta |
+| Classificação | `input[type=hidden][name="dados[<C>][classificacaoId]"]` | não mexer |
+| LMI R$ | `input[name="dados[<C>][importancia]"]` (máscara `MascaraValorMonetario`, formato `30.000,00`) | LMI da proposta |
+| LMI US$, %, Bônus, Franquias, Prêmio, Observações | `dados[<C>][importanciaDolar]`, `[porcentagem]`, `[bonus]`, `[franquia][valor]`, `[franquia][franquiaDolar]`, `[franquia][descricao]`, `[premioPadraoCobertura]`, `[observacoes]` | não mexer |
+
+Form `#formListaSgcor` (POST multipart) → `?op=propostasItensCoberturas&acao=inserir&propostaId=<N>&propostaItemId=<I>`.
+Barra: **Salvar** (`li#btnSalvar` → `salvarMultiplasCoberturas()`) — insere todas as linhas marcadas de uma vez;
+**Salvar | Novo item** (`salvarMultiplasCoberturas('t')`) e o botão **Nova Cobertura** (cria um tipo de cobertura novo no
+cadastro do SGCOR) — o robô **nunca** usa esses dois.
+
+Cuidados: há nomes parecidos para o mesmo tipo (ex.: Incêndio tem 7 opções — `INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO E FUMAÇA`,
+`… E QUEDA DE AERONAVES`, `INCÊNDIO`, `INCENDIO, EXPLOSAO E FUMACA`…), alguns com acento quebrado (`M¿RMORES`), e nem todo
+tipo existe na lista (ex.: Danos Elétricos não aparece). Casar pelo nome exato da proposta; sem nome igual → pendência.
+
 ## 4. Repasses
 
 Lista: `?op=repasses&form=listar&propostaId=<N>&cadastro=true`. Lápis → `confirmaSwal("…iremos excluir as parcelas…")` → confirmar →

@@ -43,6 +43,18 @@ pix = 36
 # Q59: o robô só ajusta o LMI destes tipos (chaves de coberturas.toml); as outras ficam como vieram no SGCOR
 ajustar = ["incendio", "valores_interior", "valores_transito"]
 
+# Q71: quando a renovação vem de outro ramo (ex.: Caixa Aqui), o robô INCLUI as coberturas desses tipos que faltam
+# no item, usando esta linha da tabela "Novo" das coberturas do SGCOR (nome exato)
+[coberturas.incluir]
+incendio = "INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO E FUMAÇA"
+valores_interior = "GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO"
+valores_transito = "GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO"
+
+[renovacao]
+# Q71: se a apólice anterior não está no ramo lotérico da seguradora, o robô procura pelo CNPJ nestes ramos
+# (em qualquer seguradora) a que termina quando a nova começa
+ramos = ["LOTÉRICO", "CAIXA AQUI"]
+
 [atualizacao]
 # Ao abrir, o AutoCOR instalado procura versão nova na última Release deste repositório do GitHub
 repositorio = "arthursantos082/Automacao-SGCOR-Protege"

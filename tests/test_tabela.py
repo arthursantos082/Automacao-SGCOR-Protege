@@ -45,3 +45,8 @@ def test_filtro_pela_metade():
     for status, esperado in (("Metade", ["B"]), ("Pronto", ["A"]), ("Pendente", ["C"]), ("", ["A", "B", "C"])):
         f.definir(status=status)
         assert visiveis() == esperado, status
+
+
+def test_duracao_no_log():
+    from sgcor_renov.ui.trabalhador import duracao
+    assert [duracao(x) for x in (0.4, 37.6, 60, 65, 754)] == ["0 s", "38 s", "1 min 00 s", "1 min 05 s", "12 min 34 s"]

@@ -56,3 +56,10 @@ def test_porto_valores_mudam_com_a_forma():
     assert seis.premio_total == D("178.98") + 5 * D("178.96")
     assert op[("cartao_porto", 12)].iof == D("70.11")
     assert op[("cartao", 10)].forma == "cartao"
+
+
+def test_porto_comissao_de_um_digito():
+    # caso real (R J R, CCA): cabeçalho "... - CO5 - PORTO PRINT WEB" = 5% de comissão
+    assert " - CO20 - " in PORTO
+    p = ler_porto(PORTO.replace(" - CO20 - ", " - CO5 - "))
+    assert p.comissao == 5 and not any("comissão" in x for x in p.problemas)

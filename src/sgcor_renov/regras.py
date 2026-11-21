@@ -5,7 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from .config import Config
 from .modelos import Caso, OpcaoPagamento
-from .propostas import soma_parcelas_confere
+from .propostas import SEM_APOLICE_ANTERIOR, soma_parcelas_confere
 
 # Q62 — Porto: a proposta às vezes não traz a opção combinada no acordo, mas a Porto sempre calcula assim:
 # à vista (1x) em qualquer forma = prêmio −5%; Cartão Porto = −5% em qualquer parcelamento e, à vista, −5% de novo;
@@ -81,7 +81,10 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
         return caso
 
     for prob in p.problemas:
-        caso.pendencias.append(f"Proposta: {prob}")
+        if prob.startswith(SEM_APOLICE_ANTERIOR) and caso.sem_apolice_confirmado:   # Q68
+            caso.avisos.append(f"Proposta: {prob}; o consultor confirmou seguir assim")
+        else:
+            caso.pendencias.append(f"Proposta: {prob}")
 
     # vigência vem da configuração (Q37); Porto com início diferente → pendência (Q44)
     if p.vigencia_inicio and p.vigencia_inicio != cfg.vigencia_inicio:
@@ -103,6 +106,8 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
             caso.avisos.append(f"Parcelas informadas pelo consultor no app: {e.parcelas}")
         elif e.origem == "oferta aceita":
             caso.avisos.append(f"Parcelas pela oferta do consultor aceita pelo cliente: “{e.trecho_parcelas}”")
+        elif e.origem == "confirmação do consultor":
+            caso.avisos.append(f"Parcelas pela confirmação do fechamento pelo consultor: “{e.trecho_parcelas}”")
 
     # forma
     if e.forma is None:

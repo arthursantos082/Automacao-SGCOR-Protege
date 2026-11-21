@@ -102,6 +102,10 @@ _ENFEITE = "[\\s\ufe0f\U0001F3FB-\U0001F3FF!.]"   # espaço, variação de emoji
 _SO_EMOJI_ACEITE = re.compile(f"^{_ENFEITE}*{_EMOJI}(?:{_EMOJI}|{_ENFEITE})*$")
 _FECHO_PADRAO = re.compile(r"a ap[óo]lice e os boletos", re.I)  # frase-padrão do consultor, não indica forma
 _N = re.compile(r"(?<![\d/.,])(\d{1,2})\s*(?:x|vezes|parcelas?|parc\b)", re.I)
+# "em até 10x no cartão": o máximo que dá para parcelar, não o que foi fechado (Q74)
+_ATE_N = re.compile(r"\bat[ée]\s+\d", re.I)
+# "Em 06 no boleto", "em 10 no cartão" (Q67): número logo depois de "em" e logo antes da forma = parcelas
+_EM_N_NA_FORMA = re.compile(r"\bem\s+(\d{1,2})\s+(?:no|na|pelo|pela)\s+(?:boleto|cart[ãa]o|pix|d[ée]bito)", re.I)
 _A_VISTA = re.compile(r"\b[àa]\s+vista\b|parcela [úu]nica|pagamento [úu]nico", re.I)
 _SO_NUMERO = re.compile(r"^\s*(\d{1,2})\s*[.!]?\s*$")
 
@@ -127,6 +131,11 @@ def _parcelas_na_mensagem(msg: str) -> tuple[set[int], str]:
     for m in _N.finditer(msg):
         if any(a <= m.start() < b for a, b in ocupado):
             continue
+        n = int(m.group(1))
+        if 1 <= n <= 12:
+            achados.add(n)
+            trechos.append(m.group(0))
+    for m in _EM_N_NA_FORMA.finditer(msg):
         n = int(m.group(1))
         if 1 <= n <= 12:
             achados.add(n)
@@ -171,18 +180,30 @@ def escolha_combinada(conversa: list[tuple[str, str]]) -> Escolha:
     """Percorre a conversa e devolve a última condição combinada (Q6 + Q31).
 
     - Fala explícita do CLIENTE com parcelas → vale (a mais recente vence).
-    - Oferta explícita do CONSULTOR com parcelas E forma ("Podemos fechar em 1+5x no boleto?")
-      seguida de aceite do cliente ("Pode sim", "Fechado") → vale como "oferta aceita".
-    - Forma: a da condição combinada; senão a última citada pelo cliente; senão boleto presumido (Q32).
+    - Oferta explícita do CONSULTOR com UMA quantidade de parcelas ("Podemos fechar em 1+5x no boleto?", ou só
+      "pode renovar em 6x?" — Q70) seguida de aceite do cliente ("Pode sim", "Certo", 👍) → vale como "oferta aceita".
+      Perguntas no meio ("Mas a primeira em janeiro né" / "isso, só dia 10") não desfazem a oferta.
+    - Q74: AFIRMAÇÃO do consultor com UMA quantidade de parcelas, sem "?" ("Irei prosseguir com a renovação do seu
+      seguro em 6 parcelas no boleto") → já vale, sem esperar o cliente ("confirmação do consultor"). Só a pergunta
+      espera o aceite. "em até 10x" (o máximo possível) não é fechamento. Fala do cliente depois continua vencendo.
+    - Forma: a da oferta; senão a última citada pelo cliente; senão boleto presumido (Q32).
     """
     e = Escolha(mensagens_cliente=sum(1 for lado, _ in conversa if lado == "cliente"))
-    oferta: tuple[int, str, str] | None = None
+    oferta: tuple[int, str | None, str] | None = None
     for lado, msg in conversa:
         achados, _ = _parcelas_na_mensagem(msg)
         forma = _forma_na_mensagem(msg)
         if lado == "atendente":
-            if len(achados) == 1 and forma:
-                oferta = (next(iter(achados)), forma, msg)
+            if len(achados) == 1 and not _ATE_N.search(msg):
+                n = next(iter(achados))
+                if "?" in msg:
+                    oferta = (n, forma, msg)                 # pergunta: espera o aceite do cliente
+                else:
+                    oferta = None                            # afirmação: o consultor confirmou o fechamento
+                    e.parcelas, e.ambigua, e.origem = n, False, "confirmação do consultor"
+                    e.trecho_parcelas = _curto(msg)
+                    if forma:
+                        e.forma, e.trecho_forma = forma, _curto(msg)
             continue
         # cliente
         if achados:
@@ -199,7 +220,8 @@ def escolha_combinada(conversa: list[tuple[str, str]]) -> Escolha:
             n, f, txt = oferta
             e.parcelas, e.ambigua, e.origem = n, False, "oferta aceita"
             e.trecho_parcelas = f"{_curto(txt)} → cliente: {_curto(msg)}"
-            e.forma, e.trecho_forma = f, _curto(txt)
+            if f:                           # oferta sem forma: fica a que o cliente já citou (ou boleto presumido)
+                e.forma, e.trecho_forma = f, _curto(txt)
             oferta = None
         if forma and not achados:
             e.forma, e.trecho_forma = forma, _curto(msg)

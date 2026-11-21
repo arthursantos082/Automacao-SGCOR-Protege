@@ -171,3 +171,30 @@ def test_porto_com_custo_de_apolice_nao_calcula():
     from sgcor_renov.regras import porto_fora_da_tabela
     p = Proposta(seguradora="PORTO", premio_liquido=D("1686.18"), iof=D("124.44"), premio_total=D("1830.62"))
     assert porto_fora_da_tabela(p, "cartao", 1) is None
+
+
+def test_comissao_5_por_cento_tem_bonus_da_primeira_faixa():
+    # campanha: até 16% de comissão → bônus R$ 18,00 (vale para o CO5 do CCA)
+    c = _caso(ler_porto(PORTO.replace(" - CO20 - ", " - CO5 - ")), parcelas=6, forma="boleto")
+    assert c.bonus == D("18.00") and not any("bônus" in p for p in c.pendencias)
+
+
+# ---- Q68: nº da apólice anterior não encontrado na proposta, confirmado pelo consultor
+
+def test_sem_apolice_anterior_e_pendencia_ate_o_consultor_confirmar():
+    import re
+    sem_num = re.sub(r"Renova Apólice nº\.?\s*\d*\s*Seguradora:\s*\d+", "Renova Apólice nº. 1234 Seguradora: Porto", TOKIO)
+    p = ler_tokio(sem_num)
+    assert p.apolice_anterior is None
+    c = _caso(p, parcelas=10, forma="boleto")
+    assert any(t.startswith("Proposta: nº da apólice anterior") for t in c.pendencias)
+
+    c2 = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", proposta=ler_tokio(sem_num),
+              escolha=Escolha(parcelas=10, forma="boleto"), sem_apolice_confirmado=True)
+    aplicar(c2, CFG)
+    assert not any("apólice anterior" in t for t in c2.pendencias)
+    assert any("apólice anterior" in a and "confirmou" in a for a in c2.avisos)
+    # a confirmação só tira essa pendência: as outras continuam
+    c3 = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", proposta=ler_tokio(sem_num), escolha=Escolha(),
+              sem_apolice_confirmado=True)
+    assert any("Parcelas não combinadas" in t for t in aplicar(c3, CFG).pendencias)

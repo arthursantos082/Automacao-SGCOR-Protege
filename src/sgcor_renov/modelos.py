@@ -33,6 +33,7 @@ class Proposta:
     iof: Decimal | None = None
     premio_total: Decimal | None = None
     comissao: int | None = None
+    produto: str = "loterico"       # Q73: "loterico" | "caixa_aqui" (CCA) — o ramo em que a renovação deve ficar
     opcoes: list[OpcaoPagamento] = field(default_factory=list)
     problemas: list[str] = field(default_factory=list)
 
@@ -67,6 +68,7 @@ class Caso:
     premio_total: Decimal | None = None
     bonus: Decimal | None = None
     vigencia_confirmada: str | None = None   # Q64: início da proposta que o consultor aceitou trocar pela padrão
+    sem_apolice_confirmado: bool = False     # Q68: o consultor aceitou seguir sem o nº da apólice anterior
     coberturas: list = field(default_factory=list)   # [(Cobertura, chave do tipo | None)]
     pendencias: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)

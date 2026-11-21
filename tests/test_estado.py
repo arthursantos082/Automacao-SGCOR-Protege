@@ -15,6 +15,7 @@ def test_ajustes_e_renovacao_pela_metade(tmp_path):
 
     e.marcar_pela_metade(pasta, "66692", "repasse", "Valor Fixo")
     assert e.pela_metade(pasta) == ("66692", "repasse")
+    assert e.pela_metade_detalhe(pasta) == ("66692", "repasse", "Valor Fixo")      # Q76: mostrado nas Pendências
     e.marcar_pela_metade(pasta, "66692", "anexos", "outro")   # avança a etapa
     assert e.pela_metade(pasta) == ("66692", "anexos")
     e.limpar_pela_metade(pasta)
@@ -42,4 +43,8 @@ def test_vigencia_confirmada_e_estado_antigo_sem_a_coluna(tmp_path):
     e.salvar(pasta, Ajuste(6, None, None, "05/12/2026"))
     assert e.ajuste(pasta).vigencia == "05/12/2026"
     assert not Ajuste(vigencia="05/12/2026").vazio()
+    assert e.ajuste(pasta).sem_apolice is False
+    e.salvar(pasta, Ajuste(6, None, None, "05/12/2026", True))      # Q68
+    assert e.ajuste(pasta).sem_apolice is True
+    assert not Ajuste(sem_apolice=True).vazio()
     e.fechar()

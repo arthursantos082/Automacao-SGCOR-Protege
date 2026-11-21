@@ -24,9 +24,11 @@ class Ajuste:
     forma: str | None = None
     proposta: str | None = None   # nome do arquivo escolhido quando há 2+ propostas
     vigencia: str | None = None   # Q64: início da proposta que o consultor aceitou trocar pela vigência padrão
+    sem_apolice: bool = False     # Q68: o consultor aceitou seguir sem o nº da apólice anterior
 
     def vazio(self) -> bool:
-        return self.parcelas is None and self.forma is None and self.proposta is None and self.vigencia is None
+        return (self.parcelas is None and self.forma is None and self.proposta is None and self.vigencia is None
+                and not self.sem_apolice)
 
 
 class Estado:
@@ -36,8 +38,11 @@ class Estado:
         self.db.execute("""CREATE TABLE IF NOT EXISTS ajustes (
             pasta TEXT PRIMARY KEY, parcelas INTEGER, forma TEXT, proposta TEXT,
             atualizado TEXT DEFAULT CURRENT_TIMESTAMP)""")
-        if "vigencia" not in {r[1] for r in self.db.execute("PRAGMA table_info(ajustes)")}:
-            self.db.execute("ALTER TABLE ajustes ADD COLUMN vigencia TEXT")   # estado de versões anteriores
+        colunas = {r[1] for r in self.db.execute("PRAGMA table_info(ajustes)")}   # estado de versões anteriores
+        if "vigencia" not in colunas:
+            self.db.execute("ALTER TABLE ajustes ADD COLUMN vigencia TEXT")
+        if "sem_apolice" not in colunas:
+            self.db.execute("ALTER TABLE ajustes ADD COLUMN sem_apolice INTEGER DEFAULT 0")
         # renovação criada no SGCOR (depois do Avançar) que ficou pela metade: o robô retoma da etapa
         self.db.execute("""CREATE TABLE IF NOT EXISTS renovacoes_pela_metade (
             pasta TEXT PRIMARY KEY, proposta_id TEXT NOT NULL, etapa TEXT NOT NULL, motivo TEXT,
@@ -66,6 +71,12 @@ class Estado:
                               (str(pasta),)).fetchone()
         return (row[0], row[1]) if row else None
 
+    def pela_metade_detalhe(self, pasta: Path) -> tuple[str, str, str] | None:
+        """(ID da renovação no SGCOR, etapa em que parou, motivo) — para mostrar nas Pendências (Q76)."""
+        row = self.db.execute("SELECT proposta_id, etapa, motivo FROM renovacoes_pela_metade WHERE pasta = ?",
+                              (str(pasta),)).fetchone()
+        return (row[0], row[1], row[2] or "") if row else None
+
     def marcar_pela_metade(self, pasta: Path, proposta_id: str, etapa: str, motivo: str) -> None:
         self.db.execute(
             "INSERT INTO renovacoes_pela_metade (pasta, proposta_id, etapa, motivo) VALUES (?, ?, ?, ?) "
@@ -78,19 +89,20 @@ class Estado:
         self.db.commit()
 
     def ajuste(self, pasta: Path) -> Ajuste | None:
-        row = self.db.execute("SELECT parcelas, forma, proposta, vigencia FROM ajustes WHERE pasta = ?",
+        row = self.db.execute("SELECT parcelas, forma, proposta, vigencia, sem_apolice FROM ajustes WHERE pasta = ?",
                               (str(pasta),)).fetchone()
-        return Ajuste(*row) if row else None
+        return Ajuste(*row[:4], bool(row[4])) if row else None
 
     def salvar(self, pasta: Path, a: Ajuste) -> None:
         if a.vazio():
             self.db.execute("DELETE FROM ajustes WHERE pasta = ?", (str(pasta),))
         else:
             self.db.execute(
-                "INSERT INTO ajustes (pasta, parcelas, forma, proposta, vigencia) VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO ajustes (pasta, parcelas, forma, proposta, vigencia, sem_apolice) VALUES (?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(pasta) DO UPDATE SET parcelas=excluded.parcelas, forma=excluded.forma, "
-                "proposta=excluded.proposta, vigencia=excluded.vigencia, atualizado=CURRENT_TIMESTAMP",
-                (str(pasta), a.parcelas, a.forma, a.proposta, a.vigencia))
+                "proposta=excluded.proposta, vigencia=excluded.vigencia, sem_apolice=excluded.sem_apolice, "
+                "atualizado=CURRENT_TIMESTAMP",
+                (str(pasta), a.parcelas, a.forma, a.proposta, a.vigencia, int(a.sem_apolice)))
         self.db.commit()
 
     def fechar(self) -> None:

@@ -40,6 +40,7 @@ C, A = "cliente", "atendente"
     ("10 X", 10),
     ("pode ser em 10 parcela\ns", 10),
     ("6", 6),
+    ("Em 06 no boleto", 6), ("em 10 no cartão", 10), ("Pode ser em 3 pelo pix", 3),   # Q67 (caso real: R J R)
 ])
 def test_formatos_de_parcelas_do_cliente(fala, parcelas):
     assert escolha_combinada([(C, fala)]).parcelas == parcelas
@@ -68,22 +69,41 @@ def test_oferta_do_consultor_aceita_pelo_cliente():
     assert (e.parcelas, e.forma, e.origem) == (6, "boleto", "oferta aceita")
 
 
-@pytest.mark.parametrize("resposta", ["", "", "👍", "👍🏽", " 👍👍 ", "👌", "✅"])
+@pytest.mark.parametrize("resposta", ["\uf087", "\uf164", "👍", "👍🏽", " 👍👍 ", "👌", "✅"])
 def test_oferta_aceita_so_com_emoji_positivo(resposta):
     # Q63, caso real (Bom Jesus): o cliente respondeu só com 👍; no PDF do chat ele vem como U+F087 (Font Awesome)
     e = escolha_combinada([(A, "Podemos seguir em 10x no boleto sem juros?"), (C, resposta)])
     assert (e.parcelas, e.forma, e.origem) == (10, "boleto", "oferta aceita")
-    assert "" not in e.trecho_parcelas
+    assert "\uf087" not in e.trecho_parcelas
 
 
-@pytest.mark.parametrize("resposta", ["😢", "", "🤔 vou ver", "👎", ".", "!", "...", "!!", "️", "👍 vou ver"])
+@pytest.mark.parametrize("resposta", ["😢", "\uf088", "🤔 vou ver", "👎", ".", "!", "...", "!!", "️", "👍 vou ver"])
 def test_outros_emojis_nao_aceitam(resposta):
     e = escolha_combinada([(A, "Podemos seguir em 10x no boleto sem juros?"), (C, resposta)])
     assert e.parcelas is None
 
 
-def test_oferta_sem_forma_nao_vale():
-    e = escolha_combinada([(A, "Vamos fechar em 6x?"), (C, "Pode sim")])
+def test_oferta_so_com_parcelas_aceita_com_pergunta_no_meio():
+    # Q70, caso real (WALDINAR): o consultor oferece só "6x", o cliente pergunta da 1ª parcela, o consultor
+    # confirma "só dia 10" e o cliente fecha com "Certo" → 6x, forma presumida boleto
+    e = escolha_combinada([
+        (C, "Certo"),
+        (A, "pode renovar em 6x?"),
+        (C, "Mas a primeira em janeiro né"),
+        (A, "isso só dia 10"),
+        (C, "Certo"),
+    ])
+    assert (e.parcelas, e.forma, e.forma_presumida, e.origem) == (6, "boleto", True, "oferta aceita")
+    assert "pode renovar em 6x?" in e.trecho_parcelas and "Certo" in e.trecho_parcelas
+
+
+def test_oferta_sem_forma_usa_a_forma_que_o_cliente_ja_citou():
+    e = escolha_combinada([(C, "prefiro no cartão"), (A, "Vamos fechar em 10x?"), (C, "Pode sim")])
+    assert (e.parcelas, e.forma, e.forma_presumida) == (10, "cartao", False)
+
+
+def test_sem_aceite_a_oferta_nao_vale():
+    e = escolha_combinada([(A, "pode renovar em 6x?"), (C, "Mas a primeira em janeiro né")])
     assert e.parcelas is None
 
 
@@ -148,3 +168,35 @@ Segue proposta em 1+9.
     msgs = mensagens_cliente_email(txt)
     assert len(msgs) == 1 and "6 vezes" in msgs[0] and "1+9" not in msgs[0]
     assert escolha_combinada([(C, m) for m in msgs]).parcelas == 6
+
+
+@pytest.mark.parametrize("fala", ["em 06/01 no boleto", "em 2026 no boleto", "Fico em 15 no boleto"])
+def test_em_n_no_boleto_nao_confunde_datas_e_numeros_grandes(fala):
+    # "em 06/01" é data; 2026 e 15 não são parcelas (1 a 12)
+    assert escolha_combinada([(C, fala)]).parcelas is None
+
+
+# ---- Q74: afirmação do consultor vale sozinha; só a pergunta espera o aceite do cliente
+
+@pytest.mark.parametrize("conversa, parcelas, forma", [
+    ([(C, "pode ser"), (A, "Irei prosseguir com a renovação do seu seguro em 6 parcelas no boleto")], 6, "boleto"),
+    ([(A, "Irei prosseguir com a renovação do seu seguro em 10 parcelas no cartão de crédito"), (C, "obrigado")],
+     10, "cartao"),
+    ([(A, "Irei prosseguir com a renovação do seu seguro em 1+5 no boleto")], 6, "boleto"),
+    ([(A, "Perfeito, irei prosseguir com a renovação do seu seguro à vista no cartão de crédito")], 1, "cartao"),
+])
+def test_afirmacao_do_consultor_vale_sozinha(conversa, parcelas, forma):
+    e = escolha_combinada(conversa)
+    assert (e.parcelas, e.forma, e.origem) == (parcelas, forma, "confirmação do consultor")
+
+
+def test_pergunta_do_consultor_continua_esperando_aceite():
+    assert escolha_combinada([(A, "Posso prosseguir em 6 parcelas no boleto?")]).parcelas is None
+    e = escolha_combinada([(A, "Posso prosseguir em 6 parcelas no boleto?"), (C, "pode")])
+    assert (e.parcelas, e.origem) == (6, "oferta aceita")
+
+
+def test_ate_n_vezes_nao_e_fechamento_e_cliente_depois_vence():
+    assert escolha_combinada([(A, "No cartão dá para parcelar em até 10x sem juros")]).parcelas is None
+    e = escolha_combinada([(A, "Irei prosseguir com a renovação em 6 parcelas no boleto"), (C, "prefiro 10x no cartão")])
+    assert (e.parcelas, e.forma, e.origem) == (10, "cartao", "cliente")

@@ -9,6 +9,7 @@ from . import propostas as prop_mod
 from . import regras
 from .config import Config
 from .modelos import Caso
+from .numeros import formatar_cnpj, separar_cnpj
 from .pdftexto import texto
 
 IGNORAR = ("_CADASTRADOS",)
@@ -79,15 +80,17 @@ def _coberturas(c: Caso, proposta: Path, ajustar: tuple[str, ...]) -> None:
 
 
 def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
-    c = Caso(seguradora=seg, pasta=pasta, nome=pasta.name)
+    # Q72: a pasta pode ter o nome da lotérica, o nome + CNPJ, ou só o CNPJ
+    nome, cnpj_pasta = separar_cnpj(pasta.name)
+    c = Caso(seguradora=seg, pasta=pasta, nome=nome or pasta.name)
     pdfs = sorted(pasta.glob("*.pdf"))
     tipos: dict[Path, str] = {}
     textos: dict[Path, str] = {}
     for pdf in pdfs:
         try:
             textos[pdf] = texto(pdf)
-        except Exception as e:  # PDF corrompido/protegido
-            c.pendencias.append(f"Não foi possível ler {pdf.name}: {e}")
+        except Exception as e:  # PDF corrompido/protegido: se for o acordo ou a cotação, a falta deles vira pendência
+            c.avisos.append(f"PDF ignorado (não foi possível ler): {pdf.name} — {e}")
             continue
         tipos[pdf] = prop_mod.classificar(textos[pdf])
 
@@ -101,10 +104,9 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
         tipos[acordos[0]] = "ACORDO_EMAIL"
         c.avisos.append(f"Acordo identificado por eliminação: {acordos[0].name}")
 
-    if len(pdfs) != 2:
-        c.pendencias.append(f"A pasta tem {len(pdfs)} PDF(s); o esperado são 2 (acordo + proposta)")
+    # Q69: a pasta pode trazer outros PDFs (ex.: a apólice anterior); o robô só usa a cotação e o acordo
     for o in outros:
-        c.pendencias.append(f"Não foi possível classificar {o.name} como ACORDO ou PROPOSTA")
+        c.avisos.append(f"PDF ignorado (não é cotação nem acordo): {o.name}")
     if len(acordos) != 1:
         c.pendencias.append("Acordo não encontrado" if not acordos else f"{len(acordos)} acordos na pasta")
     c.propostas = props
@@ -119,15 +121,17 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
         c.pendencias.append("Proposta não encontrada")
     elif escolhida is None:
         c.pendencias.append(f"{len(props)} propostas na pasta: escolher a final (Q9)")
-    # pasta com 2+ propostas resolvida pelo consultor não conta como "≠ 2 PDFs"
-    if escolhida and len(pdfs) == len(props) + 1 and len(props) > 1:
-        c.pendencias = [p for p in c.pendencias if not p.startswith("A pasta tem")]
     c.proposta_escolhida = escolhida
 
     if escolhida:
         c.proposta = prop_mod.ler_proposta(textos[escolhida])
         if c.proposta.seguradora != seg:
             c.pendencias.append(f"Proposta é da {c.proposta.seguradora}, mas está na pasta da {seg}")
+        if cnpj_pasta and c.proposta.cnpj and cnpj_pasta != c.proposta.cnpj:
+            c.pendencias.append(f"O CNPJ no nome da pasta ({formatar_cnpj(cnpj_pasta)}) é diferente do CNPJ da "
+                                f"proposta ({formatar_cnpj(c.proposta.cnpj)})")
+        if not nome and c.proposta.razao_social:      # pasta só com o CNPJ: mostra o nome da proposta
+            c.nome = c.proposta.razao_social
         _coberturas(c, escolhida, cfg.coberturas_ajustar)
     if len(acordos) == 1:
         c.acordo = acordos[0]
@@ -142,4 +146,57 @@ def analisar_pasta(pasta: Path, seg: str, cfg: Config, ajuste=None) -> Caso:
 
     if ajuste:
         c.vigencia_confirmada = ajuste.vigencia
+        c.sem_apolice_confirmado = ajuste.sem_apolice
     return regras.aplicar(c, cfg)
+
+
+# ---------------------------------------------------------------- Q75: evitar cadastrar de novo
+
+
+def cnpj_da_pasta(pasta: Path) -> str | None:
+    """CNPJ de uma pasta (ex.: em _CADASTRADOS): o do nome da pasta, senão o da proposta que está nela."""
+    _, cnpj = separar_cnpj(pasta.name)
+    if cnpj:
+        return cnpj
+    # o acordo é o PDF mais demorado de ler: tenta antes os outros (a proposta quase nunca começa com "ACORDO")
+    for pdf in sorted(pasta.glob("*.pdf"), key=lambda p: (p.name.upper().startswith("ACORDO"), p.name)):
+        try:
+            t = texto(pdf, max_paginas=2)          # o CNPJ do segurado está no começo da proposta
+            if prop_mod.classificar(t).startswith("PROPOSTA"):
+                cnpj = prop_mod.ler_proposta(t).cnpj
+                if cnpj:
+                    return cnpj
+        except Exception:
+            continue
+    return None
+
+
+def _nome_comparavel(nome_pasta: str) -> str:
+    import re
+    import unicodedata
+    nome, _ = separar_cnpj(re.sub(r"\s*\(\d{8}-\d{6}\)$", "", nome_pasta))   # tira o "(20261119-101500)" do mover
+    nome = unicodedata.normalize("NFKD", nome.upper()).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Z0-9]+", " ", nome).strip()
+
+
+def marcar_ja_cadastradas(casos: list[Caso], cadastradas: dict[Path, str | None]) -> list[Caso]:
+    """Q75: lotérica que já está em _CADASTRADOS (mesmo CNPJ, ou mesmo nome de pasta) e voltou para FECHADOS →
+    pendência, para não cadastrar duas vezes. Devolve cópias (os casos do cache não são alterados)."""
+    import copy
+    por_cnpj: dict[str, Path] = {}
+    por_nome: dict[str, Path] = {}
+    for p, cnpj in cadastradas.items():
+        if cnpj:
+            por_cnpj.setdefault(cnpj, p)
+        if n := _nome_comparavel(p.name):
+            por_nome.setdefault(n, p)
+    out = []
+    for c in casos:
+        cnpj = (c.proposta.cnpj if c.proposta else None) or separar_cnpj(c.pasta.name)[1]
+        achou = (por_cnpj.get(cnpj) if cnpj else None) or por_nome.get(_nome_comparavel(c.pasta.name))
+        if achou:
+            c = copy.copy(c)
+            c.pendencias = c.pendencias + [f"Já cadastrada: esta lotérica já está em {achou.parent.parent.name} › "
+                                           f"_CADASTRADOS › “{achou.name}” — não cadastrar de novo"]
+        out.append(c)
+    return out

@@ -11,6 +11,12 @@ from pathlib import Path
 RAIZ = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 PADRAO = RAIZ / "config" / "padrao.toml"
 AJUSTAR_PADRAO = ("incendio", "valores_interior", "valores_transito")
+# Q71: ramos em que a apólice anterior pode estar quando não está no ramo lotérico da seguradora
+RAMOS_PADRAO = ("LOTÉRICO", "CAIXA AQUI")
+# Q71: ao incluir coberturas (renovação vinda de outro ramo), a linha do SGCOR usada para cada tipo
+INCLUIR_PADRAO = {"incendio": "INCÊNDIO, RAIO, EXPLOSÃO, IMPLOSÃO E FUMAÇA",
+                  "valores_interior": "GERPA - SUB. DE VALORES NO INTERIOR DO ESTABELECIMENTO",
+                  "valores_transito": "GERPA - SUB. DE VALORES FORA DO ESTABELECIMENTO"}
 
 
 @dataclass
@@ -37,6 +43,8 @@ class Config:
     espera_login: int = 300
     # Q59: só estes tipos de cobertura têm o LMI ajustado; o resto fica como veio no SGCOR
     coberturas_ajustar: tuple[str, ...] = AJUSTAR_PADRAO
+    ramos_renovacao: tuple[str, ...] = RAMOS_PADRAO
+    coberturas_incluir: dict | None = None       # tipo → nome da cobertura no SGCOR (None = INCLUIR_PADRAO)
     repositorio: str = "arthursantos082/Automacao-SGCOR-Protege"   # Releases com as atualizações
 
     def bonus_para(self, comissao: int) -> Decimal | None:
@@ -65,5 +73,7 @@ def carregar(caminho: Path = PADRAO) -> Config:
         espera_login=espera_login,
         # config antiga (instalada antes da 1.1.0) não tem a seção: vale o padrão
         coberturas_ajustar=tuple(dados.get("coberturas", {}).get("ajustar", AJUSTAR_PADRAO)),
+        ramos_renovacao=tuple(r.upper() for r in dados.get("renovacao", {}).get("ramos", RAMOS_PADRAO)),
+        coberturas_incluir={**INCLUIR_PADRAO, **dados.get("coberturas", {}).get("incluir", {})},
         repositorio=str(dados.get("atualizacao", {}).get("repositorio", "arthursantos082/Automacao-SGCOR-Protege")),
     )

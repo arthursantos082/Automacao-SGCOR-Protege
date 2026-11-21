@@ -15,12 +15,13 @@ from pathlib import Path
 
 from playwright.sync_api import Dialog, Page, sync_playwright
 
-from ..config import Config
+from ..config import INCLUIR_PADRAO, Config
 from ..modelos import Caso
 from ..numeros import formatar_dinheiro
 from .paginas import Campo, LinhaApolice, anexos_existentes, campos_primeira_tela, conferir_parcelas, \
-    escolher_apolice, itens_da_proposta, ler_coberturas_item, ler_lista, ler_parcelas, normalizar_valor, \
-    plano_coberturas, url_busca, url_editar_repasse, url_lista, url_renovar
+    escolher_apolice, itens_da_proposta, ler_coberturas_item, ler_lista, ler_parcelas, linhas_para_incluir, \
+    marca_seguradora, mudou_de_ramo, normalizar_valor, plano_coberturas, plano_inclusoes, ramo_da_tela, url_busca, url_busca_cnpj, \
+    url_editar_repasse, url_lista, url_renovar, vale_procurar_em_outros_ramos
 
 log = logging.getLogger("sgcor_renov.robo")
 
@@ -85,14 +86,45 @@ class Robo:
                 pass
             self._pw = self._ctx = self.page = None
 
-    @staticmethod
-    def _dialogo(d: Dialog) -> None:
+    ultimo_dialogo = ""
+
+    def _dialogo(self, d: Dialog) -> None:
         # "Deseja sair? alterações não salvas" ao sair da tela sem salvar (Pular) → aceita; qualquer outro → recusa
         if d.type == "beforeunload":
             d.accept()
         else:
+            self.ultimo_dialogo = d.message
             log.warning("Diálogo inesperado do navegador recusado: %s %s", d.type, d.message)
             d.dismiss()
+
+    def _salvar_e_esperar(self, botao, o_que: str = "", timeout_s: int = 30) -> None:
+        """Clica Salvar e espera a página seguinte. Se o SGCOR recusar (aviso SweetAlert "campos obrigatórios" ou
+        alert do navegador), para NA HORA com a mensagem do SGCOR, em vez de esperar o tempo todo."""
+        pg = self.page
+        self.ultimo_dialogo = ""
+        pg.evaluate("() => { window.__autocorAntesDeSalvar = true; }")     # some quando a página seguinte abre
+        botao.click()
+        fim = time.monotonic() + timeout_s
+        while time.monotonic() < fim:
+            try:
+                # 1º: a página trocou? então salvou — mesmo que a página nova mostre um aviso de "sucesso"
+                if not pg.evaluate("() => window.__autocorAntesDeSalvar === true"):
+                    pg.wait_for_load_state("load")
+                    self.esperar_tela()
+                    return
+                # ainda na mesma página: aviso ou alert = o SGCOR recusou
+                aviso = pg.locator(".swal2-popup:visible")
+                if aviso.count():
+                    texto = " ".join((aviso.first.inner_text() or "").split())
+                    raise FalhaRobo(f"O SGCOR recusou salvar{o_que}: {texto}")
+                if self.ultimo_dialogo:
+                    raise FalhaRobo(f"O SGCOR recusou salvar{o_que}: {self.ultimo_dialogo}")
+            except FalhaRobo:
+                raise
+            except Exception:
+                pass                       # a página está trocando no meio da checagem
+            pg.wait_for_timeout(200)
+        raise FalhaRobo(f"O SGCOR não respondeu ao salvar{o_que} em {timeout_s} s")
 
     # ------------------------------------------------------------ sessão
 
@@ -190,11 +222,39 @@ class Robo:
                      l.apolice, l.inicio, l.fim, l.nivel or "?", l.tipo or "?", l.status or "?",
                      (l.companhia or "?")[:14], l.cnpj or "?")
         linha, motivo = escolher_apolice(linhas, caso, self.cfg)
+        if vale_procurar_em_outros_ramos(motivo):
+            # Q71: a apólice que termina quando a nova começa pode estar em outro ramo (Caixa Aqui) ou seguradora
+            log.info("%s: %s — procurando pelo CNPJ em outros ramos/seguradoras.", caso.nome, motivo)
+            largas = self._buscar_so_cnpj(caso)
+            linha, motivo = escolher_apolice(largas, caso, self.cfg, outros_ramos=True)
+            if linha:
+                log.info("%s: apólice anterior em outro ramo/seguradora: ID %s · %s · %s.", caso.nome,
+                         linha.proposta_id, linha.companhia, linha.ramo)
         if motivo:
             raise FalhaRobo(motivo)
+        if marca_seguradora(caso) not in linha.companhia.upper():
+            # renovar de outra seguradora exige trocar a companhia na 1ª tela (ainda não mapeada) → não grava nada
+            raise FalhaRobo(f"A apólice anterior (ID {linha.proposta_id}) é da {linha.companhia} e a proposta nova "
+                            f"é da {caso.seguradora}: o robô ainda não troca a seguradora na 1ª tela — cadastrar à mão")
         log.info("%s: apólice anterior no SGCOR = ID %s (apólice %s, %s a %s)", caso.nome, linha.proposta_id,
                  linha.apolice, linha.inicio, linha.fim)
         return linha
+
+    def _buscar_so_cnpj(self, caso: Caso) -> list[LinhaApolice]:
+        """Pesquisa só pelo CNPJ do segurado, sem filtrar companhia nem ramo (Q71)."""
+        linhas: list[LinhaApolice] = []
+        for formatado in (True, False):
+            self.ir(url_busca_cnpj(self.cfg, caso.proposta.cnpj, formatado))
+            html = self.page.content()
+            linhas = ler_lista(html)
+            if linhas:
+                break
+        self.print_(caso, "busca_outros_ramos")
+        self._guardar_html(caso, "busca_outros_ramos", html)
+        for l in linhas:
+            log.info("   linha: ID %s · %s a %s · nível %s · %s · %s · %s", l.proposta_id, l.inicio, l.fim,
+                     l.nivel or "?", (l.companhia or "?")[:14], l.ramo or "?", l.status or "?")
+        return linhas
 
     # ------------------------------------------------------------ 1ª tela
 
@@ -213,10 +273,11 @@ class Robo:
             elif c.tipo == "select":
                 alvo.select_option(c.valor)
             else:
-                # digita tecla por tecla (as máscaras e os cálculos do SGCOR reagem a teclas e ao sair do campo),
-                # mas sem pausa entre as teclas: ~0,5 s na tela toda em vez de ~4 s
-                alvo.fill("")
-                alvo.press_sequentially(c.valor)
+                # sem digitar: o valor vai direto, já no formato do SGCOR ("3.058,54", "31/12/2026"), então as
+                # máscaras de teclado não precisam agir. O Tab dispara o "sair do campo" (cálculos do SGCOR, como
+                # Vigência fim e Prêmio líquido); a ordem dos campos garante que o nosso valor é o que fica, e a
+                # conferência abaixo pega qualquer campo que não aceitou.
+                alvo.fill(c.valor)
                 alvo.press("Tab")
         # confere o que ficou na tela
         errados = []
@@ -293,13 +354,22 @@ class Robo:
             # retomada: a tela atual não é a de Itens desta renovação (logo depois do Avançar já é)
             self.ir(self._url_completa(f"?op=propostasItens&form=listar&propostaId={proposta_id}&cadastro=true"))
             self.esperar_tela()
-        itens = itens_da_proposta(self.page.content(), proposta_id)
+        html_itens = self.page.content()
+        itens = itens_da_proposta(html_itens, proposta_id)
         if len(itens) != 1:
             raise FalhaRobo(f"A renovação tem {len(itens)} itens; o robô só ajusta coberturas com 1 item")
+        ramo = ramo_da_tela(html_itens) or ""
+        outro_ramo = mudou_de_ramo(ramo, caso)       # Q71/Q73: ex.: lotérica renovando a partir de um Caixa Aqui
         url_lista_cob = self._url_completa(
             f"popup.php?op=propostasItensCoberturas&form=listar&propostaId={proposta_id}&propostaItemId={itens[0]}")
         self.ir(url_lista_cob, popup=True)
         sgcor = ler_coberturas_item(self.page.content())
+        if outro_ramo:
+            log.info("%s: renovação no ramo %s, diferente do da proposta: as coberturas de Incêndio e Valores que "
+                     "faltarem serão incluídas.", caso.nome, ramo)
+            if self._incluir_coberturas(caso, proposta_id, itens[0], sgcor, dic):
+                self.ir(url_lista_cob, popup=True)
+                sgcor = ler_coberturas_item(self.page.content())
         ajustes, pend, avisos = plano_coberturas(caso.coberturas, sgcor, dic, self.cfg.coberturas_ajustar)
         self.print_(caso, "coberturas_antes")
         if pend:
@@ -310,14 +380,19 @@ class Robo:
                  len(caso.coberturas), len(ajustes))
         for a in ajustes:
             self.ir(self._url_completa(a.url_alterar), popup=True)
+            tipo = self.page.locator("select[name='coberturaId']").first
+            if tipo.count() and not tipo.input_value():
+                # a cobertura do item não existe na lista "Cobertura" da edição (cadastro antigo com outro tipo):
+                # o SGCOR não salva sem escolher uma — o robô não escolhe tipo de cobertura por conta própria
+                raise FalhaRobo(f"Coberturas: “{a.nome_sgcor}” está no item, mas o campo Cobertura da edição vem "
+                                f"vazio no SGCOR (tipo de cobertura que não existe na lista). Escolha a cobertura e "
+                                f"ajuste o LMI à mão: {a.de} → {a.para}")
             campo = self.page.locator("input[name='importancia']").first
             campo.fill(formatar_dinheiro(a.para))      # direto, no formato do SGCOR ("30.000,00"), como no Valor Fixo
             campo.dispatch_event("change")
             if normalizar_valor(campo.input_value()) != normalizar_valor(formatar_dinheiro(a.para)):
                 raise FalhaRobo(f"LMI de “{a.nome_sgcor}” não aceitou {formatar_dinheiro(a.para)}")
-            with self.page.expect_navigation(timeout=30000):
-                self._salvar().click()
-            self.esperar_tela()
+            self._salvar_e_esperar(self._salvar(), f" o LMI de “{a.nome_sgcor}”")
             log.info("%s: LMI de “%s” %s → %s", caso.nome, a.nome_sgcor, a.de, a.para)
         # confere a lista de novo
         self.ir(url_lista_cob, popup=True)
@@ -326,6 +401,42 @@ class Robo:
         self.print_(caso, "coberturas_depois")
         if depois or pend:
             raise FalhaRobo("Coberturas não ficaram iguais à proposta depois de salvar")
+        if outro_ramo:
+            faltam = self._tipos_que_faltam(caso, ler_coberturas_item(self.page.content()), dic)
+            if faltam:
+                raise FalhaRobo("Coberturas incluídas não apareceram no item: " + ", ".join(faltam))
+
+    def _tipos_que_faltam(self, caso: Caso, sgcor, dic) -> list[str]:
+        no_item = {t.chave for c in sgcor if (t := dic.tipo_de(c.nome, "sgcor"))}
+        return sorted({ch for _, ch in caso.coberturas if ch in self.cfg.coberturas_ajustar and ch not in no_item})
+
+    def _incluir_coberturas(self, caso: Caso, proposta_id: str, item_id: str, sgcor, dic) -> bool:
+        """Q71 (mapa §3.1): inclui de uma vez, na tabela "Novo", os tipos que faltam no item. Só digita o LMI e marca
+        a linha; Salvar = submit do formulário. Devolve True se incluiu algo."""
+        if not self._tipos_que_faltam(caso, sgcor, dic):
+            return False
+        self.ir(self._url_completa(f"popup.php?op=propostasItensCoberturas&form=cadastrar&propostaId={proposta_id}"
+                                   f"&propostaItemId={item_id}"), popup=True)
+        tabela = linhas_para_incluir(self.page.content())
+        inclusoes, pend = plano_inclusoes(caso.coberturas, sgcor, dic, self.cfg.coberturas_ajustar,
+                                          self.cfg.coberturas_incluir or INCLUIR_PADRAO, tabela)
+        if pend:
+            raise FalhaRobo("Coberturas: " + " | ".join(pend))
+        for inc in inclusoes:
+            valor = formatar_dinheiro(inc.lmi)
+            campo = self.page.locator(f'input[name="dados[{inc.cobertura_id}][importancia]"]').first
+            campo.fill(valor)
+            self.page.locator(f"#cobertura_{inc.cobertura_id}").check()
+            if normalizar_valor(campo.input_value()) != normalizar_valor(valor):
+                raise FalhaRobo(f"LMI de “{inc.nome_sgcor}” não aceitou {valor}")
+        self.print_(caso, "coberturas_incluir")
+        # "Salvar" (salvarMultiplasCoberturas()); NUNCA "Salvar | Novo item" ('t') nem "Nova Cobertura"
+        salvar = self.page.locator('li#btnSalvar[onclick*="salvarMultiplasCoberturas()"]').first
+        self._salvar_e_esperar(salvar, " as coberturas incluídas", 60)
+        for inc in inclusoes:
+            log.info("%s: cobertura incluída: “%s” R$ %s (proposta: “%s”).", caso.nome, inc.nome_sgcor,
+                     formatar_dinheiro(inc.lmi), inc.nome_proposta)
+        return True
 
     def repasse(self, caso: Caso, proposta_id: str, produtor: str) -> None:
         """Repasse: produtor = consultor, Repasse Sobre = VF, Valor Fixo = bônus, Parcela Única →

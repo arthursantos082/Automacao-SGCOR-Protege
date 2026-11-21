@@ -8,7 +8,16 @@ from .modelos import OpcaoPagamento, Proposta
 from .numeros import CNPJ, DINHEIRO, dinheiro, mais_um_ano, so_digitos
 
 CNPJ_TOKIO = "33164021000100"
+# Q68: problema que o consultor pode confirmar no app (o robô acha a apólice no SGCOR pelo CNPJ e pela vigência)
+SEM_APOLICE_ANTERIOR = "nº da apólice anterior"
 CNPJ_PORTO = "61198164000160"
+
+
+def produto(texto: str) -> str:
+    """Q73: CCA (Correspondente Caixa Aqui) ou lotérica. A Tokio escreve "Caixa Aqui" nas coberturas; a Porto,
+    "CCA". As propostas de lotérica repetem "Lotérico" (14 a 20 vezes); as de CCA, no máximo 1."""
+    t = texto.upper()
+    return "caixa_aqui" if "CAIXA AQUI" in t or re.search(r"\bCCA\b", t) else "loterico"
 
 
 def classificar(texto: str) -> str:
@@ -45,7 +54,7 @@ _OPCAO_TOKIO = re.compile(
 
 
 def ler_tokio(texto: str) -> Proposta:
-    p = Proposta(seguradora="TOKIO")
+    p = Proposta(seguradora="TOKIO", produto=produto(texto))
 
     if m := re.search(r"Cotação nº\.?\s*(\d+)", texto):
         p.numero = m.group(1)
@@ -56,7 +65,7 @@ def ler_tokio(texto: str) -> Proposta:
     if m := re.search(r"Renova Apólice nº\.?\s*\d*\s*Seguradora:\s*(\d{6,})", texto):
         p.apolice_anterior = str(int(m.group(1)))
     else:
-        p.problemas.append("apólice anterior (Renova Apólice nº) não encontrada")
+        p.problemas.append(f"{SEM_APOLICE_ANTERIOR} (Renova Apólice nº) não encontrado")
 
     if m := re.search(r"A\(o\)\s*\n(?:.*\n){0,4}?(.+?)\s+-\s+(" + CNPJ + r")\s*$", texto, re.M):
         p.razao_social = m.group(1).strip()
@@ -123,7 +132,7 @@ _OPCAO_PORTO = re.compile(
 
 
 def ler_porto(texto: str) -> Proposta:
-    p = Proposta(seguradora="PORTO")
+    p = Proposta(seguradora="PORTO", produto=produto(texto))
 
     if m := re.search(r"NÚMERO DO ORÇAMENTO\s*\n\s*\S+\s+(\d+)", texto):
         p.numero = m.group(1)
@@ -133,7 +142,7 @@ def ler_porto(texto: str) -> Proposta:
     if m := re.search(r"APÓLICE A SER RENOVADA\s*\n.*NÚMERO DA APÓLICE.*\n\s*\d+\s+(\d+)", texto):
         p.apolice_anterior = str(int(m.group(1)))
     else:
-        p.problemas.append("apólice anterior (Informações da apólice a ser renovada) não encontrada")
+        p.problemas.append(f"{SEM_APOLICE_ANTERIOR} (Informações da apólice a ser renovada) não encontrado")
 
     if m := re.search(r"DADOS DO PROPONENTE\s*\n.*\n(.+?)\s+JUR[ÍI]DICA\s+(" + CNPJ + r")", texto):
         p.razao_social = m.group(1).strip()
@@ -147,7 +156,7 @@ def ler_porto(texto: str) -> Proposta:
     else:
         p.problemas.append("início de vigência não encontrado")
 
-    if m := re.search(r" - CO(\d{2}) - ", texto):
+    if m := re.search(r" - CO(\d{1,2}) - ", texto):   # "CO5" = 5%, "CO20" = 20%
         p.comissao = int(m.group(1))
     else:
         p.problemas.append("comissão (COnn no cabeçalho) não encontrada")

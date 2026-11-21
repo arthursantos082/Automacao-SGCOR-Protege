@@ -42,6 +42,12 @@ def limpar_antigos(raiz: Path, dias: int = RETENCAO_DIAS) -> None:
             pass
 
 
+def duracao(segundos: float) -> str:
+    """38 s · 1 min 05 s (para o log)."""
+    s = round(segundos)
+    return f"{s} s" if s < 60 else f"{s // 60} min {s % 60:02d} s"
+
+
 def mover_para_cadastrados(pasta: Path) -> Path:
     """Q10/Q21: só depois de tudo gravado. FECHADOS X/<lotérica> → FECHADOS X/_CADASTRADOS/<lotérica>."""
     destino_dir = pasta.parent / "_CADASTRADOS"
@@ -179,6 +185,7 @@ class Trabalhador(QObject):
         self.parar_lote.clear()
         dic = Dicionario.carregar()
         cadastradas = puladas = pendentes = metade = 0
+        inicio_lote = time.monotonic()
         parar = False
         log.info("Lote iniciado: %d lotérica(s), modo %s, produtor %s.", len(casos),
                  "Automático" if modo == "automatico" else "Conferência", produtor)
@@ -195,6 +202,7 @@ class Trabalhador(QObject):
                 if d == "parar":
                     break
             proposta_id = None    # ID da renovação no SGCOR depois do Avançar
+            inicio = time.monotonic()   # tempo de cada cadastro no log
             etapa = "coberturas"
             retomar = self.estado.pela_metade(caso.pasta)
             if retomar:
@@ -243,8 +251,8 @@ class Trabalhador(QObject):
                     self.estado.limpar_pela_metade(caso.pasta)
                     destino = mover_para_cadastrados(caso.pasta)
                     self.estado.registrar_cadastrada(destino, caso.nome, caso.seguradora, proposta_id, produtor)
-                    log.info("%s: CADASTRADA no SGCOR (ID %s). Pasta movida para %s.", caso.nome, proposta_id,
-                             destino.parent.name)
+                    log.info("%s: CADASTRADA no SGCOR (ID %s) em %s. Pasta movida para %s.", caso.nome, proposta_id,
+                             duracao(time.monotonic() - inicio), destino.parent.name)
                     self.situacao.emit(caso.pasta, f"Cadastrada no SGCOR (ID {proposta_id})")
                     cadastradas += 1
                     break
@@ -262,8 +270,9 @@ class Trabalhador(QObject):
                     if proposta_id:
                         # Q12: a renovação já existe — não mexe mais agora; fica guardada para retomar desta etapa
                         self.estado.marcar_pela_metade(caso.pasta, proposta_id, etapa, msg)
-                        log.warning("%s: PELA METADE (ID %s, etapa %s): %s — execute de novo para retomar desta "
-                                    "etapa, ou termine no SGCOR.", caso.nome, proposta_id, etapa, msg)
+                        log.warning("%s: PELA METADE (ID %s, etapa %s, após %s): %s — execute de novo para retomar "
+                                    "desta etapa, ou termine no SGCOR.", caso.nome, proposta_id, etapa,
+                                    duracao(time.monotonic() - inicio), msg)
                         self.situacao.emit(caso.pasta, f"Pela metade (ID {proposta_id}, {etapa}): {msg}")
                         metade += 1
                     else:
@@ -272,8 +281,10 @@ class Trabalhador(QObject):
                         pendentes += 1
                         self._sair_sem_salvar()
                     break
-        resumo = (f"Lote encerrado: {cadastradas} cadastrada(s), {metade} pela metade (terminar no SGCOR), "
-                  f"{pendentes} com pendência antes de gravar, {puladas} pulada(s).")
+        total = time.monotonic() - inicio_lote
+        media = f", média de {duracao(total / cadastradas)} por cadastro" if cadastradas else ""
+        resumo = (f"Lote encerrado em {duracao(total)}: {cadastradas} cadastrada(s), {metade} pela metade (terminar "
+                  f"no SGCOR), {pendentes} com pendência antes de gravar, {puladas} pulada(s){media}.")
         log.info(resumo)
         self.fim_lote.emit(resumo)
 

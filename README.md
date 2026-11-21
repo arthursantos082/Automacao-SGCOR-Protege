@@ -25,8 +25,10 @@ FECHADOS TOKIO
     └── COSTA & CANDIDA LTDA.pdf            ← proposta da seguradora
 ```
 
+- O nome da pasta pode ser o nome da lotérica, o nome + CNPJ, ou só o CNPJ.
+- Outros PDFs na pasta (por exemplo, a apólice anterior) são ignorados: o robô só usa o acordo e a proposta.
 - Não deixe PDF solto direto em `FECHADOS PORTO` ou `FECHADOS TOKIO`.
-- A pasta `_CADASTRADOS` é do robô: ele move para lá cada lotérica que termina.
+- A pasta `_CADASTRADOS` é do robô: ele move para lá cada lotérica que termina. Se uma lotérica que já está lá aparecer de novo em `FECHADOS` (mesmo CNPJ ou mesmo nome), ela fica como pendência "Já cadastrada", para não ser cadastrada duas vezes.
 
 O AutoCOR identifica cada PDF pelo conteúdo, então nomes um pouco diferentes também funcionam. Mesmo assim, siga esse padrão para todo mundo achar tudo.
 
@@ -115,7 +117,7 @@ gh release create v1.0.1 dist\AutoCOR.zip --title "AutoCOR 1.0.1" --notes "O que
 | `src/sgcor_renov/ui/` | janela (PySide6), tutorial, cadastradas, leitor em paralelo e a thread do robô |
 | `config/` | configuração editável |
 | `docs/f0-mapa-sgcor.md` | mapa das telas e seletores do SGCOR |
-| `plan.md` | plano e registro de decisões (Q1…Q65) |
+| `plan.md` | plano e registro de decisões (Q1…Q76) |
 | `empacotar/` | ponto de entrada e script do PyInstaller |
 
 ### Regras de segurança

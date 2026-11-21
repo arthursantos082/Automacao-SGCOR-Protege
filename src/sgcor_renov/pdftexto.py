@@ -15,9 +15,10 @@ class Linha:
     texto: str
 
 
-def texto(caminho: Path) -> str:
+def texto(caminho: Path, max_paginas: int | None = None) -> str:
+    """max_paginas: lê só as primeiras (ex.: o CNPJ fica na 1ª página da proposta — Q75)."""
     with pdfplumber.open(caminho) as doc:
-        return "\n".join(p.extract_text() or "" for p in doc.pages)
+        return "\n".join(p.extract_text() or "" for p in doc.pages[:max_paginas])
 
 
 def linhas(caminho: Path, tolerancia_y: float = 3.0) -> list[Linha]:

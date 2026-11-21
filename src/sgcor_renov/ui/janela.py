@@ -25,10 +25,11 @@ from ..instalacao import VERSAO
 from ..estado import Ajuste, Estado
 from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
+from ..propostas import SEM_APOLICE_ANTERIOR
 from ..regras import onde_pendencia
 from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
-from .tabela import COL_CNPJ, FORMAS, DelegadoCopiar, FiltroCasos, ModeloCasos, icone_copiar
+from .tabela import COL_CNPJ, FORMAS, LARANJA, DelegadoCopiar, FiltroCasos, ModeloCasos, icone_copiar
 from .trabalhador import Trabalhador
 from .tutorial import Tutorial
 
@@ -520,12 +521,25 @@ class Janela(QMainWindow):
         self.bt_vigencia.clicked.connect(self._confirmar_vigencia)
         self.bt_vigencia.setVisible(False)
         self._amarelo(self.bt_vigencia, True)         # só aparece quando há a pendência: pede atenção
+        # Q68: nº da apólice anterior que não veio na proposta (ex.: "Renova Apólice nº 1234") → o consultor confirma
+        self.bt_apolice = QPushButton("Seguir sem o nº da apólice anterior…")
+        self.bt_apolice.setToolTip("O robô acha a apólice anterior no SGCOR pelo CNPJ e pela vigência, sem usar "
+                                   "esse número: confirme para seguir")
+        self.bt_apolice.clicked.connect(self._confirmar_sem_apolice)
+        self.bt_apolice.setVisible(False)
+        self._amarelo(self.bt_apolice, True)
+        self.botoes_pend = QWidget()                  # botões de confirmar, logo abaixo da lista de Pendências
+        bl_pend = QVBoxLayout(self.botoes_pend)
+        bl_pend.setContentsMargins(0, 2, 0, 0)
+        bl_pend.setSpacing(4)
+        bl_pend.addWidget(self.bt_vigencia)
+        bl_pend.addWidget(self.bt_apolice)
 
         self.split_det = QSplitter(Qt.Vertical)
         self.split_det.setChildrenCollapsible(False)
         self.split_det.setHandleWidth(8)
         for titulo, conteudo, embaixo in (
-                ("Pendências", self.ls_pend, self.bt_vigencia), ("Avisos", self.ls_avisos, None),   # Q64
+                ("Pendências", self.ls_pend, self.botoes_pend), ("Avisos", self.ls_avisos, None),   # Q64
                 ("Coberturas da proposta (LMI) — ✎ = o robô ajusta no SGCOR", self.ls_cob, None)):
             self.split_det.addWidget(self._secao(titulo, conteudo, embaixo))
         self.split_det.addWidget(box)
@@ -681,11 +695,7 @@ class Janela(QMainWindow):
             self.info[k].setText(v or "—")
         e = c.escolha
         self.lb_combinado.setText(f"No acordo: “{e.trecho_parcelas}”" if e and e.trecho_parcelas else "")
-        self.ls_pend.clear()
-        for t in c.pendencias:
-            it = QListWidgetItem("⚠ " + t)
-            it.setForeground(QColor("#f0533f"))
-            self.ls_pend.addItem(it)
+        self._listar_pendencias(c)
         self.ls_avisos.clear()
         self.ls_avisos.addItems(c.avisos)
         self.ls_cob.clear()
@@ -713,6 +723,8 @@ class Janela(QMainWindow):
         self.bt_acordo.setEnabled(c.acordo is not None)
         self.bt_prop.setEnabled(bool(c.propostas))
         self.bt_vigencia.setVisible(resolvivel and any(t.startswith("Vigência da proposta") for t in c.pendencias))
+        self.bt_apolice.setVisible(resolvivel and any(t.startswith(f"Proposta: {SEM_APOLICE_ANTERIOR}")
+                                                      for t in c.pendencias))
 
     def _abrir_proposta(self) -> None:
         c = self._atual
@@ -726,8 +738,25 @@ class Janela(QMainWindow):
             parcelas=self.sp_parcelas.value() or None,
             forma=self.cb_forma.currentData(),
             proposta=self.cb_proposta.currentData(),
-            vigencia=anterior.vigencia if anterior else None,     # não perde a vigência já confirmada
+            vigencia=anterior.vigencia if anterior else None,     # não perde as confirmações já feitas
+            sem_apolice=anterior.sem_apolice if anterior else False,
         ))
+
+    def _confirmar_sem_apolice(self) -> None:
+        c = self._atual
+        if not c or not c.pasta.is_dir():
+            return
+        r = QMessageBox.question(
+            self, "Apólice anterior",
+            f"Não encontrei o nº da apólice anterior na proposta de {c.nome}.\n\n"
+            "O robô não usa esse número: ele acha a apólice anterior no SGCOR pelo CNPJ, pela seguradora e pela "
+            "vigência.\n\nSeguir mesmo assim?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if r != QMessageBox.Yes:
+            return
+        a = self.estado.ajuste(c.pasta) or Ajuste()
+        a.sem_apolice = True
+        self._salvar_ajuste(a)
 
     def _confirmar_vigencia(self) -> None:
         c = self._atual
@@ -876,6 +905,24 @@ class Janela(QMainWindow):
             QGuiApplication.clipboard().setText(cnpj)
             self._cnpj_copiado(cnpj)
 
+    ETAPAS = {"coberturas": "Coberturas", "repasse": "Repasse", "parcelas": "Parcelas", "anexos": "Anexos"}
+
+    def _listar_pendencias(self, c: Caso) -> None:
+        """Pendências da pasta e, se a renovação ficou pela metade no SGCOR, onde e por que parou (Q76)."""
+        self.ls_pend.clear()
+        metade = self.estado.pela_metade_detalhe(c.pasta) if c.pasta.is_dir() else None
+        if metade:
+            pid, etapa, motivo = metade
+            it = QListWidgetItem(f"◐ Pela metade no SGCOR (ID {pid}) — parou na etapa {self.ETAPAS.get(etapa, etapa)}"
+                                 + (f": {motivo}" if motivo else "")
+                                 + ". Corrija no SGCOR e execute de novo (o robô continua desta etapa) ou termine à mão.")
+            it.setForeground(QColor(LARANJA))
+            self.ls_pend.addItem(it)
+        for t in c.pendencias:
+            it = QListWidgetItem("⚠ " + t)
+            it.setForeground(QColor("#f0533f"))
+            self.ls_pend.addItem(it)
+
     def _situacao(self, pasta: Path, texto: str) -> None:
         m = re.match(r"Pela metade \(ID (\d+)", texto)
         self.modelo.definir_situacao(pasta, texto, m.group(1) if m else None)
@@ -884,6 +931,8 @@ class Janela(QMainWindow):
             self.filtro.definir()
         if self._atual and self._atual.pasta == pasta:
             self.lb_titulo.setText(f"{self._atual.nome}  ·  {texto}")
+            if m or texto.startswith("Cadastrada"):
+                self._listar_pendencias(self._atual)
 
     def _aguardando(self, caso: Caso, campos: list) -> None:
         self._selecionar(caso.pasta)

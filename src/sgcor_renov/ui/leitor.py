@@ -17,9 +17,10 @@ from PySide6.QtCore import QObject, Signal
 from ..config import RAIZ, Config
 from ..estado import Ajuste, pasta_dados
 from ..modelos import Caso
-from ..scanner import analisar_pasta, assinatura, pastas_de, seguradora_da_pasta, soltos
+from ..scanner import (analisar_pasta, assinatura, cnpj_da_pasta, marcar_ja_cadastradas, pastas_de,
+                       seguradora_da_pasta, soltos)
 
-VERSAO_LEITURA = "9"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+VERSAO_LEITURA = "16"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
 
 
 def _versao() -> str:
@@ -43,20 +44,24 @@ class Leitor(QObject):
         self.cfg = cfg
         self.arquivo_cache = arquivo_cache or pasta_dados() / "cache-leitura.pickle"
         self.versao = _versao()
-        self._cache: dict[Path, tuple[tuple, tuple, Caso]] = self._carregar_cache()
+        self._cache: dict[Path, tuple[tuple, tuple, Caso]] = {}
+        self._cad: dict[Path, tuple[tuple, str | None]] = {}    # Q75: pasta em _CADASTRADOS → (assinatura, CNPJ)
+        self._carregar_cache()
         self.cancelar = threading.Event()   # setado ao fechar o app: para de esperar as pastas restantes
 
-    def _carregar_cache(self) -> dict:
+    def _carregar_cache(self) -> None:
         try:
             dados = pickle.loads(self.arquivo_cache.read_bytes())
-            return dados["casos"] if dados.get("versao") == self.versao else {}
+            if dados.get("versao") == self.versao:
+                self._cache = dados["casos"]
+                self._cad = dados.get("cadastradas", {})
         except Exception:
-            return {}
+            pass
 
     def _salvar_cache(self) -> None:
         try:
             tmp = self.arquivo_cache.with_suffix(".tmp")
-            tmp.write_bytes(pickle.dumps({"versao": self.versao, "casos": self._cache}))
+            tmp.write_bytes(pickle.dumps({"versao": self.versao, "casos": self._cache, "cadastradas": self._cad}))
             os.replace(tmp, self.arquivo_cache)
         except Exception:
             pass  # cache é só otimização
@@ -77,7 +82,7 @@ class Leitor(QObject):
             reler: list[tuple[Path, str, tuple, tuple]] = []
             for pasta, seg in alvos:
                 a = ajustes.get(pasta)
-                chave_aj = (a.parcelas, a.forma, a.proposta, a.vigencia) if a else ()
+                chave_aj = (a.parcelas, a.forma, a.proposta, a.vigencia, a.sem_apolice) if a else ()
                 ass = assinatura(pasta)
                 hit = self._cache.get(pasta)
                 if hit and hit[0] == ass and hit[1] == chave_aj:
@@ -113,7 +118,26 @@ class Leitor(QObject):
             vivos = {p for p, _ in alvos}
             for velho in set(self._cache) - vivos:
                 del self._cache[velho]
+            cadastradas = self._ler_cadastradas(raizes)
             self._salvar_cache()
-            self.concluido.emit(soltos_ + [resultado[p] for p, _ in alvos])
+            casos = marcar_ja_cadastradas([resultado[p] for p, _ in alvos], cadastradas)
+            self.concluido.emit(soltos_ + casos)
         except Exception as e:  # nunca derrubar a tela por causa de um PDF
             self.erro.emit(f"{type(e).__name__}: {e}")
+
+    def _ler_cadastradas(self, raizes: list[Path]) -> dict[Path, str | None]:
+        """Q75: CNPJ de cada pasta em _CADASTRADOS (do nome ou da proposta), com cache — só relê a pasta nova/mudada."""
+        pastas = [p for r in raizes if (r / "_CADASTRADOS").is_dir() for p in (r / "_CADASTRADOS").iterdir()
+                  if p.is_dir()]
+        assin = {p: assinatura(p) for p in pastas}
+        reler = [p for p in pastas if p not in self._cad or self._cad[p][0] != assin[p]]
+        if reler:
+            ex = ProcessPoolExecutor(max_workers=max(1, min(len(reler), (os.cpu_count() or 2) - 1)))
+            try:
+                for p, cnpj in zip(reler, ex.map(cnpj_da_pasta, reler)):
+                    self._cad[p] = (assin[p], cnpj)
+            finally:
+                ex.shutdown(wait=True)
+        for velho in set(self._cad) - set(pastas):
+            del self._cad[velho]
+        return {p: self._cad[p][1] for p in pastas}
