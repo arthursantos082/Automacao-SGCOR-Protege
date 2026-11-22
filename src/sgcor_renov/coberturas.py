@@ -102,7 +102,9 @@ def ler_porto(caminho: Path) -> list[Cobertura]:
             cab = next((w for w in ws if w["text"] == "L.M.I."), None)
             if not cab:
                 continue
-            pre = next((w for w in ws if w["text"] == "PRÊMIO" and abs(w["top"] - cab["top"]) < 3), None)
+            # a coluna do prêmio se chama "PRÊMIO" (Orçamento/Proposta) ou "ESTIMATIVA" (Estimativa — Q81)
+            pre = next((w for w in ws if w["text"] in ("PRÊMIO", "ESTIMATIVA") and abs(w["top"] - cab["top"]) < 3),
+                       None)
             if not pre:
                 continue
             fim = page.height

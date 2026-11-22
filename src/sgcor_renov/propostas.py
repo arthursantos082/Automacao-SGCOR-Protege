@@ -25,7 +25,7 @@ def classificar(texto: str) -> str:
     t = texto.upper()
     if "HISTÓRICO DE ATENDIMENTO" in t or "HISTORICO DE ATENDIMENTO" in t:
         return "ACORDO"
-    if "COTAÇÃO DE SEGURO TOKIO MARINE" in t:
+    if "COTAÇÃO DE SEGURO TOKIO MARINE" in t or "PROPOSTA DE SEGURO TOKIO MARINE" in t:   # Q81: Cotação ou Proposta
         return "PROPOSTA_TOKIO"
     if "PORTO SEGURO" in t and "NÚMERO DO ORÇAMENTO" in t:
         return "PROPOSTA_PORTO"
@@ -56,13 +56,15 @@ _OPCAO_TOKIO = re.compile(
 def ler_tokio(texto: str) -> Proposta:
     p = Proposta(seguradora="TOKIO", produto=produto(texto))
 
-    if m := re.search(r"Cotação nº\.?\s*(\d+)", texto):
+    # Cotação: "Cotação nº. 16038103"; Proposta de Seguro (Q81): "Proposta nº. 15855832"
+    if m := re.search(r"(?:Cotação|Proposta) nº\.?\s*(\d+)", texto):
         p.numero = m.group(1)
     else:
         p.problemas.append("nº da cotação não encontrado")
 
-    # "Renova Apólice nº.180 Seguradora:\n000000002691184" → 2691184
-    if m := re.search(r"Renova Apólice nº\.?\s*\d*\s*Seguradora:\s*(\d{6,})", texto):
+    # Cotação: "Renova Apólice nº.180 Seguradora:\n000000002691184" → 2691184
+    # Proposta (Q81): "Renova Apólice nº.180 Seguradora Anterior: Moeda:Real\n000000002691258" → 2691258
+    if m := re.search(r"Renova Apólice nº\.?\s*\d*\s*Seguradora(?:\s+Anterior)?:[^\d\n]*\s*(\d{6,})", texto):
         p.apolice_anterior = str(int(m.group(1)))
     else:
         p.problemas.append(f"{SEM_APOLICE_ANTERIOR} (Renova Apólice nº) não encontrado")
@@ -166,7 +168,10 @@ def ler_porto(texto: str) -> Proposta:
         p.problemas.append("comissão (COnn no cabeçalho) não encontrada")
 
     liquido_total = custo = None
-    if m := re.search(r"DEMONSTRATIVO DE PRÊMIO GERAL\s*\n.*\n" + r"\s*".join([rf"R\$\s*({DINHEIRO})"] * 6), texto):
+    # "DEMONSTRATIVO DE PRÊMIO GERAL" (Orçamento/Proposta) ou "ESTIMATIVA DE VALORES" (Estimativa — Q81; a linha
+    # "ESTIMATIVA DE VALORES DO ITEM" não tem IOF e não casa porque exige a quebra de linha logo depois)
+    if m := re.search(r"(?:DEMONSTRATIVO DE PRÊMIO GERAL|ESTIMATIVA DE VALORES)\s*\n.*\n"
+                      + r"\s*".join([rf"R\$\s*({DINHEIRO})"] * 6), texto):
         _, _, liquido_total, custo, iof, total = (dinheiro(m.group(i)) for i in range(1, 7))
         p.premio_liquido, p.iof, p.premio_total = liquido_total, iof, total
         if liquido_total + custo + iof != total:

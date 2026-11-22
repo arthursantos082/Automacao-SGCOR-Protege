@@ -90,3 +90,38 @@ def test_porto_proposta_de_seguro_numero_cnpj_e_forma_contratada():
 def test_porto_orcamento_continua_lendo_a_tabela():
     p = ler_porto(PORTO)
     assert p.numero == "118600001" and len(p.opcoes) == 4 and not any(o.marcada for o in p.opcoes)
+
+
+# ---- Q81: Porto "ESTIMATIVA" e Tokio "PROPOSTA DE SEGURO" (dados fictícios, a partir das amostras)
+
+def test_porto_estimativa_le_estimativa_de_valores():
+    # caso real (DELTALOTERIAS): no lugar de "DEMONSTRATIVO DE PRÊMIO GERAL" vem "ESTIMATIVA DE VALORES", e antes
+    # dele a "ESTIMATIVA DE VALORES DO ITEM" (sem IOF), que não pode ser confundida com o geral
+    t = PORTO.replace("DEMONSTRATIVO DE PRÊMIO GERAL",
+                      "ESTIMATIVA DE VALORES DO ITEM\nPRÊMIO LÍQUIDO COBERTURAS PRÊMIO LÍQUIDO CLÁUSULAS PRÊMIO LÍQUIDO "
+                      "TOTAL CUSTO DE APÓLICE PRÊMIO TOTAL\nR$ 999,00 R$ 0,00 R$ 999,00 R$ 0,00 R$ 1.073,80\n"
+                      "ESTIMATIVA DE VALORES")
+    assert "DEMONSTRATIVO DE PRÊMIO GERAL" not in t
+    p = ler_porto(t)
+    assert p.problemas == []
+    assert (p.premio_liquido, p.iof, p.premio_total) == (D("1000.00"), D("73.80"), D("1073.80"))
+
+
+def test_tokio_proposta_de_seguro():
+    # caso real (CANARINHO): "PROPOSTA DE SEGURO TOKIO MARINE", "Proposta nº." e "Seguradora Anterior: Moeda:Real"
+    t = (TOKIO.replace("COTAÇÃO DE SEGURO TOKIO MARINE", "PROPOSTA DE SEGURO TOKIO MARINE")
+              .replace("Cotação nº. 15800001 Versão nº.1 Moeda:Real", "Proposta nº. 15800009 Versão nº.1 Apolice nº.")
+              .replace("Renova Apólice nº.180 Seguradora:\n", "Renova Apólice nº.180 Seguradora Anterior: Moeda:Real\n"))
+    assert "COTAÇÃO" not in t and "Seguradora Anterior" in t
+    assert classificar(t) == "PROPOSTA_TOKIO"
+    p = ler_tokio(t)
+    assert p.problemas == []
+    assert (p.numero, p.apolice_anterior) == ("15800009", "1234567")
+    assert p.opcoes and p.cnpj == ler_tokio(TOKIO).cnpj
+
+
+def test_tokio_sem_numero_de_apolice_anterior_continua_pendente():
+    # "Renova Apólice nº. 1234 Seguradora: Porto Seguro…" (WALDINAR, Q68) não pode virar um nº pegando outra linha
+    t = TOKIO.replace("Renova Apólice nº.180 Seguradora:\n000000001234567",
+                      "Renova Apólice nº. 1234 Seguradora: Porto Seguro Cia. De Seguros Gerais")
+    assert ler_tokio(t).apolice_anterior is None
