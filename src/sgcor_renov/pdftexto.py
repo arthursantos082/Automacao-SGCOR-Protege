@@ -1,6 +1,7 @@
 """Leitura de PDFs: texto corrido e linhas com posição horizontal."""
 from __future__ import annotations
 
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -59,8 +60,97 @@ class Linha:
     texto: str
 
 
-def texto(caminho: Path, max_paginas: int | None = None) -> str:
-    """max_paginas: lê só as primeiras (ex.: o CNPJ fica na 1ª página da proposta — Q75)."""
+class PdfImagem(Exception):
+    """Q87: o PDF é só imagem (impresso pela "Microsoft Print to PDF", print de tela, escaneado): não tem texto."""
+
+
+def so_imagem(caminho: Path, paginas: int = 2) -> bool:
+    """Q87: nenhum caractere de texto nas primeiras páginas. Pelo pdfium (o mesmo que o pdfplumber usa para desenhar
+    as páginas): ~0,1 s. O pdfplumber levava ~1 min para concluir que uma proposta escaneada de 12 páginas não tem
+    texto. Erro ao abrir → False (a leitura normal mostra o erro dela)."""
+    try:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(str(caminho))
+    except Exception:
+        return False
+    try:
+        if len(doc) == 0:
+            return False
+        for i in range(min(paginas, len(doc))):
+            pg = doc[i]
+            tp = pg.get_textpage()
+            try:
+                if tp.get_text_range().strip():
+                    return False
+            finally:
+                tp.close()
+                pg.close()
+        return True
+    except Exception:
+        return False
+    finally:
+        doc.close()
+
+
+PAGINAS_SEMPRE_INTEIRO = 20
+_CAB_TOKIO = ("COTAÇÃO DE SEGURO TOKIO MARINE", "PROPOSTA DE SEGURO TOKIO MARINE")
+_CONTADOR = re.compile(r"\s1 / (\d+)\s")
+_CAB_LER_INTEIRO = re.compile(r"HIST[ÓO]RICO DE ATENDIMENTO|N[ÚU]MERO DO OR[ÇC]AMENTO|MAIL\.GOOGLE\.COM|^\s*E-MAIL DE ",
+                              re.M)
+
+
+def paginas_uteis(caminho: Path) -> int | None:
+    """Q88: quantas páginas do começo bastam (None = todas). As apólices têm ~190 páginas e algumas cotações da Tokio
+    vêm com as condições gerais anexadas (~140); o pdfplumber leva ~0,2 s por página e lia tudo (até 15 min numa
+    pasta). Pelo pdfium (milissegundos):
+    - até 20 páginas, ou acordo/orçamento Porto/e-mail na 1ª página → tudo, como sempre;
+    - cotação/proposta Tokio → as N páginas do contador "1 / N" da 1ª página (ou as do começo com o cabeçalho);
+    - o resto (apólice, condições gerais, boleto…) → 3, só para reconhecer o que é."""
+    try:
+        import pypdfium2 as pdfium
+        doc = pdfium.PdfDocument(str(caminho))
+    except Exception:
+        return None
+    try:
+        n = len(doc)
+        if n <= PAGINAS_SEMPRE_INTEIRO:
+            return None
+
+        def txt(i: int) -> str:
+            pg = doc[i]
+            tp = pg.get_textpage()
+            try:
+                return tp.get_text_range().upper()
+            finally:
+                tp.close()
+                pg.close()
+        t0 = txt(0)
+        if any(k in t0 for k in _CAB_TOKIO):
+            # o rodapé da 1ª página diz quantas páginas tem a cotação/proposta ("1 / 14"); as condições gerais vêm
+            # depois. Sem ele: as páginas do começo com o cabeçalho (algumas cotações não o repetem no anexo)
+            if (m := _CONTADOR.search(t0)) and 1 <= int(m.group(1)) <= n:
+                return int(m.group(1))
+            k = 1
+            while k < n and any(c in txt(k) for c in _CAB_TOKIO):
+                k += 1
+            return k
+        if _CAB_LER_INTEIRO.search(t0):
+            return None
+        return 3
+    except Exception:
+        return None
+    finally:
+        doc.close()
+
+
+def texto(caminho: Path, max_paginas: int | None = None, so_uteis: bool = False) -> str:
+    """max_paginas: lê só as primeiras (ex.: o CNPJ fica na 1ª página da proposta — Q75).
+    so_uteis: lê só as páginas que interessam (Q88, ver paginas_uteis).
+    PDF só com imagem → PdfImagem (Q87), na hora."""
+    if so_imagem(caminho):
+        raise PdfImagem(caminho.name)
+    if so_uteis and max_paginas is None:
+        max_paginas = paginas_uteis(caminho)
     with pdfplumber.open(caminho) as doc:
         return "\n".join(p.extract_text() or "" for p in doc.pages[:max_paginas])
 

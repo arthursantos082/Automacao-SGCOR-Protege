@@ -50,4 +50,7 @@ def test_vigencia_confirmada_e_estado_antigo_sem_a_coluna(tmp_path):
     e.salvar(pasta, Ajuste(6, None, None, "05/12/2026", True, "11222333000181"))     # Q80
     assert e.ajuste(pasta).cnpj_confirmado == "11222333000181"
     assert not Ajuste(cnpj_confirmado="11222333000181").vazio()
+    e.salvar(pasta, Ajuste(6, None, None, None, False, None, "05/12/2026 a 05/12/2027"))   # Q83
+    assert e.ajuste(pasta).vigencia_alterada == "05/12/2026 a 05/12/2027"
+    assert not Ajuste(vigencia_alterada="05/12/2026 a 05/12/2027").vazio()
     e.fechar()

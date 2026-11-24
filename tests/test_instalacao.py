@@ -76,3 +76,31 @@ def test_falha_no_meio_da_copia_volta_a_versao_anterior(tmp_path, monkeypatch):
         copiar_programa(_programa(tmp_path / "v2", "v2"), destino)
     assert [p.name for p in (destino / "_internal").iterdir()] == ["lib-v1.dll"]      # voltou a anterior
     assert not (destino / "_internal.antigo").exists()
+
+
+# ---- Q82: anexo lido pelo AutoCOR (pasta do Google Drive): tenta de novo enquanto o Drive baixa
+
+def test_ler_arquivo_espera_o_drive(tmp_path, monkeypatch):
+    import time
+    from pathlib import Path
+    import pytest
+    from sgcor_renov.robo.navegador import FalhaRobo, ler_arquivo
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    arq = tmp_path / "ACORDO X.pdf"
+    arq.write_bytes(b"%PDF-1.4 conteudo")
+    leituras = iter([OSError("O provedor de arquivos de nuvem não está em execução"), b"", b"%PDF-1.4 conteudo"])
+    original = Path.read_bytes
+
+    def lendo(self):
+        if self == arq:
+            r = next(leituras)
+            if isinstance(r, Exception):
+                raise r
+            return r
+        return original(self)
+
+    monkeypatch.setattr(Path, "read_bytes", lendo)
+    assert ler_arquivo(arq) == b"%PDF-1.4 conteudo"          # 1ª: erro do Drive; 2ª: vazio; 3ª: ok
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (_ for _ in ()).throw(OSError("sem rede")))
+    with pytest.raises(FalhaRobo, match="ACORDO X.pdf"):
+        ler_arquivo(arq, tentativas=2)

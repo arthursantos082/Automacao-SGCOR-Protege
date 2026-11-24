@@ -6,6 +6,11 @@ from decimal import Decimal
 from pathlib import Path
 
 
+# Q87: início do texto das pendências de PDF salvo como imagem (o scanner gera; a tabela pinta o acordo de laranja)
+PEND_PROPOSTA_IMAGEM = "Proposta salva como imagem"
+PEND_ACORDO_IMAGEM = "Acordo salvo como imagem"
+
+
 @dataclass
 class OpcaoPagamento:
     forma: str            # boleto | cartao | cartao_porto | debito_pix | debito
@@ -69,6 +74,7 @@ class Caso:
     bonus: Decimal | None = None
     vigencia_confirmada: str | None = None   # Q64: início da proposta que o consultor aceitou trocar pela padrão
     sem_apolice_confirmado: bool = False     # Q68: o consultor aceitou seguir sem o nº da apólice anterior
+    vigencia_alterada: tuple[str, str] | None = None   # Q83: (início, fim) escolhidos pelo consultor
     coberturas: list = field(default_factory=list)   # [(Cobertura, chave do tipo | None)]
     pendencias: list[str] = field(default_factory=list)
     avisos: list[str] = field(default_factory=list)

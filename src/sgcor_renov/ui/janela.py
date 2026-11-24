@@ -13,7 +13,7 @@ from pathlib import Path
 from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QActionGroup, QColor, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QAbstractItemView, QApplication, QButtonGroup, QInputDialog, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
     QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QProgressDialog, QPushButton, QScrollArea, QSpinBox, QSplitter,
     QTableView, QToolButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -24,15 +24,16 @@ from ..config import carregar
 from ..instalacao import VERSAO
 from ..estado import Ajuste, Estado
 from ..modelos import Caso
-from ..numeros import formatar_cnpj, formatar_dinheiro
+from ..numeros import formatar_cnpj, formatar_dinheiro, mais_um_ano
 from ..propostas import SEM_APOLICE_ANTERIOR
-from ..regras import onde_pendencia
-from ..scanner import PEND_CNPJ_ACORDO
+from ..regras import onde_pendencia, vigencia_do_caso
+from ..scanner import PEND_CNPJ_ACORDO, lotericas_cadastradas
 from .cadastradas import JanelaCadastradas
 from .leitor import Leitor
 from .tabela import COL_CNPJ, FORMAS, LARANJA, DelegadoCopiar, FiltroCasos, ModeloCasos, icone_copiar
-from .trabalhador import Trabalhador
+from .trabalhador import Trabalhador, mover_para_cadastrados
 from .tutorial import Tutorial
+from .vigencia import DialogoVigencia
 
 NOME = "AutoCOR"
 ORG, APP = "GrupoProtege", "SGCOR-Renovacoes"   # identificadores internos (registro/estado): não mudam com o nome
@@ -204,7 +205,12 @@ class Janela(QMainWindow):
         self.bt_cadastradas.clicked.connect(self._ver_cadastradas)
         for b in (bt_todos, bt_nenhum, bt_ler):
             filtros.addWidget(b)
+        self.bt_mover = QPushButton("Mover para cadastradas")
+        self.bt_mover.setToolTip("Move a lotérica selecionada para _CADASTRADOS (ex.: cadastro terminado à mão no SGCOR)")
+        self.bt_mover.clicked.connect(self._mover_para_cadastradas)
+        self.bt_mover.setEnabled(False)
         filtros.addSpacing(16)
+        filtros.addWidget(self.bt_mover)
         filtros.addWidget(self.bt_cadastradas)
         raiz.addLayout(filtros)
 
@@ -519,6 +525,10 @@ class Janela(QMainWindow):
         botoes.addWidget(self.bt_aplicar)
         botoes.addWidget(self.bt_desfazer)
         f.addRow(botoes)
+        self.bt_alterar_vig = QPushButton("Alterar vigência…")
+        self.bt_alterar_vig.setToolTip("Cadastrar esta lotérica com outra vigência (no lugar da padrão da configuração)")
+        self.bt_alterar_vig.clicked.connect(self._alterar_vigencia)
+        f.addRow(self.bt_alterar_vig)
         # Q64: vigência da proposta diferente da padrão não tem como corrigir no PDF → o consultor confirma a padrão
         self.bt_vigencia = QPushButton("Seguir com a vigência padrão…")
         self.bt_vigencia.setToolTip("A vigência vem da proposta e não dá para corrigir no PDF: confirme para "
@@ -675,8 +685,9 @@ class Janela(QMainWindow):
 
     def _habilitar_detalhe(self, sim: bool) -> None:
         for wdg in (self.sp_parcelas, self.cb_forma, self.cb_proposta, self.bt_aplicar, self.bt_desfazer,
-                    self.bt_pasta, self.bt_acordo, self.bt_prop):
+                    self.bt_pasta, self.bt_acordo, self.bt_prop, self.bt_alterar_vig):
             wdg.setEnabled(sim)
+        self.bt_mover.setEnabled(sim and not self.executando)
 
     def _mostrar(self, idx) -> None:
         c: Caso | None = idx.data(Qt.UserRole) if idx.isValid() else None
@@ -695,7 +706,8 @@ class Janela(QMainWindow):
             "CNPJ": formatar_cnpj(p.cnpj) if p else "",
             "Apólice anterior": (p.apolice_anterior or "") if p else "",
             "Proposta nº": (p.numero or "") if p else "",
-            "Vigência": f"{self.cfg.vigencia_inicio} a {self.cfg.vigencia_fim} (configuração)",
+            "Vigência": "{} a {}".format(*vigencia_do_caso(c, self.cfg))
+                        + (" (alterada)" if c.vigencia_alterada else " (configuração)"),
             "Parcelas / forma": f"{c.parcelas or '?'}x · {FORMAS.get(c.forma or '', c.forma or '?')}",
             "Cobrança SGCOR": str(c.cobranca_id or ""),
             "Prêmio líquido": formatar_dinheiro(c.premio_liquido),
@@ -731,8 +743,9 @@ class Janela(QMainWindow):
         if a and a.proposta:
             self.cb_proposta.setCurrentIndex(max(self.cb_proposta.findData(a.proposta), 0))
         resolvivel = c.pasta.is_dir()
-        for wdg in (self.sp_parcelas, self.cb_forma, self.bt_aplicar, self.bt_desfazer):
+        for wdg in (self.sp_parcelas, self.cb_forma, self.bt_aplicar, self.bt_desfazer, self.bt_alterar_vig):
             wdg.setEnabled(resolvivel)
+        self.bt_mover.setEnabled(resolvivel and not self.executando)
         self.bt_acordo.setEnabled(c.acordo is not None)
         self.bt_prop.setEnabled(bool(c.propostas))
         self.bt_vigencia.setVisible(resolvivel and any(t.startswith("Vigência da proposta") for t in c.pendencias))
@@ -756,7 +769,58 @@ class Janela(QMainWindow):
             vigencia=anterior.vigencia if anterior else None,     # não perde as confirmações já feitas
             sem_apolice=anterior.sem_apolice if anterior else False,
             cnpj_confirmado=anterior.cnpj_confirmado if anterior else None,
+            vigencia_alterada=anterior.vigencia_alterada if anterior else None,
         ))
+
+    def _alterar_vigencia(self) -> None:
+        """Q83: o consultor escolhe a vigência desta lotérica (o robô usa na 1ª tela, na busca da apólice anterior —
+        a que termina no início novo — e no aviso de datas do Avançar)."""
+        c = self._atual
+        if not c or not c.pasta.is_dir():
+            return
+        p = c.proposta
+        if c.vigencia_alterada:
+            ini, fim = c.vigencia_alterada
+        elif p and p.vigencia_inicio and p.vigencia_inicio != self.cfg.vigencia_inicio:
+            ini, fim = p.vigencia_inicio, p.vigencia_fim or mais_um_ano(p.vigencia_inicio)   # sugere a da proposta
+        else:
+            ini, fim = self.cfg.vigencia_inicio, self.cfg.vigencia_fim
+        dlg = DialogoVigencia(self, c.nome, ini, fim, self.cfg.vigencia_inicio, self.cfg.vigencia_fim,
+                              p.vigencia_inicio if p else None)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        a = self.estado.ajuste(c.pasta) or Ajuste()
+        a.vigencia_alterada = dlg.resultado      # None = voltar à padrão
+        self._salvar_ajuste(a)
+
+    def _mover_para_cadastradas(self) -> None:
+        """Q84: move a lotérica selecionada para _CADASTRADOS (cadastro feito/terminado à mão no SGCOR)."""
+        c = self._atual
+        if self.executando:
+            QMessageBox.information(self, "Mover para cadastradas", "Espere o lote terminar.")
+            return
+        if not c or not c.pasta.is_dir():
+            return
+        metade = self.estado.pela_metade(c.pasta)
+        pid, ok = QInputDialog.getText(
+            self, "Mover para cadastradas",
+            f"Mover “{c.nome}” para _CADASTRADOS?\n\nUse quando o cadastro foi feito ou terminado à mão no SGCOR: a "
+            f"pasta sai da lista e não será cadastrada de novo.\n\nID da renovação no SGCOR (opcional):",
+            text=metade[0] if metade else "")
+        if not ok:
+            return
+        try:
+            destino = mover_para_cadastrados(c.pasta)
+        except OSError as e:
+            QMessageBox.warning(self, "Mover para cadastradas", f"Não consegui mover a pasta: {e}")
+            return
+        self.estado.limpar_pela_metade(c.pasta)
+        self.estado.registrar_cadastrada(destino, c.nome, c.seguradora, pid.strip(), "movida à mão no AutoCOR")
+        self.log.appendPlainText(f"{c.nome}: movida para _CADASTRADOS à mão"
+                                 + (f" (ID {pid.strip()})" if pid.strip() else "") + ".")
+        self.statusBar().showMessage(f"{c.nome} movida para _CADASTRADOS.", 8000)
+        self._atual = None
+        self.ler()
 
     def _confirmar_loterica(self) -> None:
         c = self._atual
@@ -827,8 +891,7 @@ class Janela(QMainWindow):
         n = len(self.modelo.selecionados())
         self.lb_contagem.setText(f"{n} selecionada(s)")
         self.bt_executar.setEnabled(n > 0 and not self.executando)
-        cad = sum(1 for r in self._raizes() if (r / "_CADASTRADOS").is_dir()
-                  for p in (r / "_CADASTRADOS").iterdir() if p.is_dir())
+        cad = len(lotericas_cadastradas([r for r in self._raizes() if r.is_dir()]))
         self.bt_cadastradas.setText(f"Ver cadastradas ({cad})")
 
     def _ver_cadastradas(self) -> None:

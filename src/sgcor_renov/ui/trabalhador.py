@@ -24,6 +24,7 @@ from ..config import Config
 from ..estado import Estado, pasta_dados
 from ..modelos import Caso
 from ..robo.navegador import FalhaRobo, Robo, SessaoExpirada
+from ..scanner import dir_cadastrados
 
 log = logging.getLogger("sgcor_renov.robo")
 RETENCAO_DIAS = 90   # Q25
@@ -49,8 +50,9 @@ def duracao(segundos: float) -> str:
 
 
 def mover_para_cadastrados(pasta: Path) -> Path:
-    """Q10/Q21: só depois de tudo gravado. FECHADOS X/<lotérica> → FECHADOS X/_CADASTRADOS/<lotérica>."""
-    destino_dir = pasta.parent / "_CADASTRADOS"
+    """Q10/Q21: só depois de tudo gravado. Q85: FECHADOS-X/<lotérica> → _CADASTRADOS/<lotérica>, com a
+    _CADASTRADOS na pasta-mãe, ao lado de FECHADOS-PORTO e FECHADOS-TOKIO (criada se não existir)."""
+    destino_dir = dir_cadastrados(pasta)
     destino_dir.mkdir(exist_ok=True)
     destino = destino_dir / pasta.name
     if destino.exists():

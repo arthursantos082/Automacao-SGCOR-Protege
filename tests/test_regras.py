@@ -198,3 +198,34 @@ def test_sem_apolice_anterior_e_pendencia_ate_o_consultor_confirmar():
     c3 = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", proposta=ler_tokio(sem_num), escolha=Escolha(),
               sem_apolice_confirmado=True)
     assert any("Parcelas não combinadas" in t for t in aplicar(c3, CFG).pendencias)
+
+
+def test_vigencia_alterada_igual_a_da_proposta_tira_a_pendencia():
+    # Q83: proposta começa em 05/12/2026; o consultor alterou a vigência para 05/12/2026 a 05/12/2027
+    p = ler_porto(PORTO)
+    p.vigencia_inicio = "05/12/2026"
+    c = Caso(seguradora="PORTO", pasta=Path("."), nome="X", proposta=p, escolha=Escolha(parcelas=6, forma="boleto"),
+             vigencia_alterada=("05/12/2026", "05/12/2027"))
+    aplicar(c, CFG)
+    assert not any(t.startswith("Vigência") for t in c.pendencias)
+    assert any("alterada pelo consultor: 05/12/2026 a 05/12/2027" in a for a in c.avisos)
+    # alterada para outra data → a da proposta diverge → pendência (com a data que será usada)
+    p2 = ler_porto(PORTO)
+    p2.vigencia_inicio = "05/12/2026"
+    c2 = Caso(seguradora="PORTO", pasta=Path("."), nome="X", proposta=p2, escolha=Escolha(parcelas=6, forma="boleto"),
+              vigencia_alterada=("10/12/2026", "10/12/2027"))
+    assert any("vai usar 10/12/2026" in t for t in aplicar(c2, CFG).pendencias)
+
+
+def test_sem_acordo_lido_ainda_confere_a_proposta():
+    """Q87: sem acordo lido (ex.: acordo em imagem), a proposta continua conferida — senão a lotérica pareceria ter só
+    o acordo pendente (laranja) e esconderia a vigência errada ou a comissão fora da tabela."""
+    p = ler_porto(PORTO)
+    p.vigencia_inicio = "05/12/2026"
+    c = aplicar(Caso(seguradora="PORTO", pasta=Path("."), nome="X", proposta=p), CFG)
+    assert any(t.startswith("Vigência da proposta") for t in c.pendencias)
+    assert c.bonus is not None and c.parcelas is None        # bônus calculado; nada de pagamento sem acordo
+    import dataclasses
+    sem_faixas = dataclasses.replace(CFG, bonus=[])         # comissão fora da tabela de bônus
+    c2 = aplicar(Caso(seguradora="PORTO", pasta=Path("."), nome="X", proposta=ler_porto(PORTO)), sem_faixas)
+    assert any(t.startswith("Comissão") and "fora da tabela" in t for t in c2.pendencias)

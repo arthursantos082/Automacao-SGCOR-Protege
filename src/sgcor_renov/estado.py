@@ -26,10 +26,11 @@ class Ajuste:
     vigencia: str | None = None   # Q64: início da proposta que o consultor aceitou trocar pela vigência padrão
     sem_apolice: bool = False     # Q68: o consultor aceitou seguir sem o nº da apólice anterior
     cnpj_confirmado: str | None = None   # Q80: CNPJ da proposta confirmado apesar de o acordo citar outro CNPJ
+    vigencia_alterada: str | None = None # Q83: "dd/mm/aaaa a dd/mm/aaaa" escolhida pelo consultor (no lugar da padrão)
 
     def vazio(self) -> bool:
         return (self.parcelas is None and self.forma is None and self.proposta is None and self.vigencia is None
-                and not self.sem_apolice and self.cnpj_confirmado is None)
+                and not self.sem_apolice and self.cnpj_confirmado is None and self.vigencia_alterada is None)
 
 
 class Estado:
@@ -46,6 +47,8 @@ class Estado:
             self.db.execute("ALTER TABLE ajustes ADD COLUMN sem_apolice INTEGER DEFAULT 0")
         if "cnpj_confirmado" not in colunas:
             self.db.execute("ALTER TABLE ajustes ADD COLUMN cnpj_confirmado TEXT")
+        if "vigencia_alterada" not in colunas:
+            self.db.execute("ALTER TABLE ajustes ADD COLUMN vigencia_alterada TEXT")
         # renovação criada no SGCOR (depois do Avançar) que ficou pela metade: o robô retoma da etapa
         self.db.execute("""CREATE TABLE IF NOT EXISTS renovacoes_pela_metade (
             pasta TEXT PRIMARY KEY, proposta_id TEXT NOT NULL, etapa TEXT NOT NULL, motivo TEXT,
@@ -92,21 +95,23 @@ class Estado:
         self.db.commit()
 
     def ajuste(self, pasta: Path) -> Ajuste | None:
-        row = self.db.execute("SELECT parcelas, forma, proposta, vigencia, sem_apolice, cnpj_confirmado FROM ajustes "
-                              "WHERE pasta = ?", (str(pasta),)).fetchone()
-        return Ajuste(*row[:4], bool(row[4]), row[5]) if row else None
+        row = self.db.execute("SELECT parcelas, forma, proposta, vigencia, sem_apolice, cnpj_confirmado, "
+                              "vigencia_alterada FROM ajustes WHERE pasta = ?", (str(pasta),)).fetchone()
+        return Ajuste(*row[:4], bool(row[4]), row[5], row[6]) if row else None
 
     def salvar(self, pasta: Path, a: Ajuste) -> None:
         if a.vazio():
             self.db.execute("DELETE FROM ajustes WHERE pasta = ?", (str(pasta),))
         else:
             self.db.execute(
-                "INSERT INTO ajustes (pasta, parcelas, forma, proposta, vigencia, sem_apolice, cnpj_confirmado) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO ajustes (pasta, parcelas, forma, proposta, vigencia, sem_apolice, cnpj_confirmado, "
+                "vigencia_alterada) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(pasta) DO UPDATE SET parcelas=excluded.parcelas, forma=excluded.forma, "
                 "proposta=excluded.proposta, vigencia=excluded.vigencia, sem_apolice=excluded.sem_apolice, "
-                "cnpj_confirmado=excluded.cnpj_confirmado, atualizado=CURRENT_TIMESTAMP",
-                (str(pasta), a.parcelas, a.forma, a.proposta, a.vigencia, int(a.sem_apolice), a.cnpj_confirmado))
+                "cnpj_confirmado=excluded.cnpj_confirmado, vigencia_alterada=excluded.vigencia_alterada, "
+                "atualizado=CURRENT_TIMESTAMP",
+                (str(pasta), a.parcelas, a.forma, a.proposta, a.vigencia, int(a.sem_apolice), a.cnpj_confirmado,
+                 a.vigencia_alterada))
         self.db.commit()
 
     def fechar(self) -> None:

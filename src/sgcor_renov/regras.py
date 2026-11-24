@@ -75,9 +75,22 @@ def onde_pendencia(texto: str) -> set[str]:
     return onde
 
 
+def vigencia_do_caso(caso: Caso, cfg: Config) -> tuple[str, str]:
+    """Q83: a vigência que o robô usa — a alterada pelo consultor, senão a da configuração."""
+    return caso.vigencia_alterada or (cfg.vigencia_inicio, cfg.vigencia_fim)
+
+
+def _comissao(caso: Caso, p, cfg: Config) -> None:
+    """Comissão → bônus."""
+    if p.comissao is not None:
+        caso.bonus = cfg.bonus_para(p.comissao)
+        if caso.bonus is None:
+            caso.pendencias.append(f"Comissão {p.comissao}% fora da tabela de bônus")
+
+
 def aplicar(caso: Caso, cfg: Config) -> Caso:
     p, e = caso.proposta, caso.escolha
-    if p is None or e is None:
+    if p is None:
         return caso
 
     for prob in p.problemas:
@@ -87,13 +100,21 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
             caso.pendencias.append(f"Proposta: {prob}")
 
     # vigência vem da configuração (Q37); Porto com início diferente → pendência (Q44)
-    if p.vigencia_inicio and p.vigencia_inicio != cfg.vigencia_inicio:
+    ini, fim = vigencia_do_caso(caso, cfg)
+    if caso.vigencia_alterada:
+        caso.avisos.append(f"Vigência alterada pelo consultor: {ini} a {fim}")
+    if p.vigencia_inicio and p.vigencia_inicio != ini:
         if caso.vigencia_confirmada == p.vigencia_inicio:   # Q64: o consultor confirmou seguir com a padrão
             caso.avisos.append(f"Vigência da proposta começa em {p.vigencia_inicio}; o consultor confirmou cadastrar "
-                               f"com a vigência padrão ({cfg.vigencia_inicio} a {cfg.vigencia_fim})")
+                               f"com a vigência {ini} a {fim}")
         else:
             caso.pendencias.append(f"Vigência da proposta começa em {p.vigencia_inicio}, "
-                                   f"mas a configuração usa {cfg.vigencia_inicio}")
+                                   f"mas o AutoCOR vai usar {ini}"
+                                   + ("" if caso.vigencia_alterada else " (configuração)"))
+
+    if e is None:       # sem acordo lido (ex.: acordo em imagem, Q87): só o que depende da proposta
+        _comissao(caso, p, cfg)
+        return caso
 
     # parcelas
     if e.ambigua:
@@ -149,11 +170,7 @@ def aplicar(caso: Caso, cfg: Config) -> Caso:
             caso.avisos.append(f"Valores da forma escolhida diferem do demonstrativo geral "
                                f"(total {opcao.premio_total} × {p.premio_total}) — usados os da forma")
 
-    # comissão → bônus
-    if p.comissao is not None:
-        caso.bonus = cfg.bonus_para(p.comissao)
-        if caso.bonus is None:
-            caso.pendencias.append(f"Comissão {p.comissao}% fora da tabela de bônus")
+    _comissao(caso, p, cfg)
 
     marcada = next((o for o in p.opcoes if o.marcada), None)
     if marcada and caso.parcelas and marcada.parcelas != caso.parcelas:

@@ -8,6 +8,7 @@ Regras de segurança desta fase (F2):
 from __future__ import annotations
 
 import logging
+import mimetypes
 import re
 import time
 from datetime import date, datetime
@@ -18,12 +19,30 @@ from playwright.sync_api import Dialog, Page, sync_playwright
 from ..config import INCLUIR_PADRAO, Config
 from ..modelos import Caso
 from ..numeros import formatar_dinheiro
+from ..regras import vigencia_do_caso
 from .paginas import Campo, LinhaApolice, anexos_existentes, campos_primeira_tela, conferir_parcelas, \
     escolher_apolice, itens_da_proposta, ler_coberturas_item, ler_lista, ler_parcelas, linhas_para_incluir, \
     marca_seguradora, mudou_de_ramo, normalizar_valor, plano_coberturas, plano_inclusoes, ramo_da_tela, url_busca, url_busca_cnpj, \
     url_editar_repasse, url_lista, url_renovar, vale_procurar_em_outros_ramos
 
 log = logging.getLogger("sgcor_renov.robo")
+
+
+def ler_arquivo(arq: Path, tentativas: int = 6, espera: float = 5.0) -> bytes:
+    """Lê o arquivo inteiro. Numa pasta do Google Drive (só na nuvem), a 1ª leitura faz o Drive baixar e pode falhar
+    ou voltar vazia enquanto isso: tenta de novo algumas vezes (até ~30 s)."""
+    erro: Exception | None = None
+    for i in range(tentativas):
+        try:
+            dados = arq.read_bytes()
+            if dados:
+                return dados
+            erro = OSError("arquivo vazio (ainda baixando do Drive?)")
+        except OSError as e:
+            erro = e
+        if i < tentativas - 1:
+            time.sleep(espera)
+    raise FalhaRobo(f"Não consegui ler {arq.name} para anexar (está na nuvem e não baixou?): {erro}")
 
 
 class SessaoExpirada(Exception):
@@ -97,7 +116,7 @@ class Robo:
             log.warning("Diálogo inesperado do navegador recusado: %s %s", d.type, d.message)
             d.dismiss()
 
-    def _salvar_e_esperar(self, botao, o_que: str = "", timeout_s: int = 30) -> None:
+    def _salvar_e_esperar(self, botao, o_que: str = "", timeout_s: int = 30, volta_lista: bool = False) -> None:
         """Clica Salvar e espera a página seguinte. Se o SGCOR recusar (aviso SweetAlert "campos obrigatórios" ou
         alert do navegador), para NA HORA com a mensagem do SGCOR, em vez de esperar o tempo todo."""
         pg = self.page
@@ -110,7 +129,7 @@ class Robo:
                 # 1º: a página trocou? então salvou — mesmo que a página nova mostre um aviso de "sucesso"
                 if not pg.evaluate("() => window.__autocorAntesDeSalvar === true"):
                     pg.wait_for_load_state("load")
-                    self.esperar_tela()
+                    self.esperar_lista() if volta_lista else self.esperar_tela()     # Q86
                     return
                 # ainda na mesma página: aviso ou alert = o SGCOR recusou
                 aviso = pg.locator(".swal2-popup:visible")
@@ -140,6 +159,18 @@ class Robo:
             raise SessaoExpirada()
         if esperar:
             self.esperar_tela()
+
+    def ir_lista(self, url: str, popup: bool = False) -> None:
+        """Q86: lista do SGCOR (Itens, Coberturas do item, Repasses). A tabela já vem pronta no HTML (o AJAX
+        oConteudoAjax só roda ao filtrar/recarregar), então basta a página carregar e o "Carregando" sumir — sem
+        esperar a rede parar (as páginas ficam baixando imagens/estilos depois do load: 1 a 6 s por tela)."""
+        self.ir(url, popup=popup, esperar=False)
+        self.esperar_lista()
+
+    def esperar_lista(self, timeout_ms: int = 30000) -> None:
+        carregando = self.page.locator("#conteudo-carregando")
+        if carregando.count() and carregando.first.is_visible():
+            carregando.first.wait_for(state="hidden", timeout=timeout_ms)
 
     def esperar_tela(self, timeout_ms: int = 30000) -> None:
         """O SGCOR mostra '#conteudo-carregando' e esconde o formulário enquanto carrega dados por AJAX.
@@ -315,13 +346,15 @@ class Robo:
     def _salvar(self):
         return self.page.locator("li#btnSalvar:visible").first
 
-    def _swal(self, timeout_ms: int = 8000) -> str | None:
-        """Texto do aviso SweetAlert2 aberto (ou None se nenhum abrir no prazo)."""
+    def _swal_aberto(self) -> str | None:
+        """Texto do aviso SweetAlert2 visível agora (None se não houver, ou se a página estiver trocando)."""
         try:
-            self.page.wait_for_selector(".swal2-popup", state="visible", timeout=timeout_ms)
+            aviso = self.page.locator(".swal2-popup:visible")
+            if aviso.count():
+                return " ".join((aviso.first.inner_text() or "").split())
         except Exception:
-            return None
-        return (self.page.locator(".swal2-popup").inner_text() or "").strip()
+            pass
+        return None
 
     def _url_completa(self, rel: str) -> str:
         return rel if rel.startswith("http") else self.cfg.url_sgcor + rel.lstrip("/")
@@ -329,18 +362,34 @@ class Robo:
     def avancar(self, caso: Caso) -> str:
         """Clica Avançar na 1ª tela. A partir daqui a renovação EXISTE no SGCOR. Devolve o propostaId novo."""
         pg = self.page
+        ini, fim = vigencia_do_caso(caso, self.cfg)         # Q83: a alterada pelo consultor, se houver
+        self.ultimo_dialogo = ""
         self._botao("Avançar").click()
-        aviso = self._swal()
-        if aviso is not None:
-            if "vigência" in aviso.lower() and self.cfg.vigencia_inicio in aviso and self.cfg.vigencia_fim in aviso:
-                pg.locator(".swal2-confirm").click()       # "Sim, estão corretas" (Q52)
-                aviso2 = self._swal(4000)                  # p.ex. "Número máximo de parcelas…"
-                if aviso2 is not None:
-                    raise FalhaRobo(f"SGCOR recusou o Avançar: {aviso2}")
-            else:
+        # Q86: sem esperas fixas (eram 8 s pelo aviso de vigência + 4 s por um 2º aviso que quase nunca vem):
+        # olha a cada 0,1 s o que acontece primeiro — a tela de Itens abre, ou o SGCOR mostra um aviso
+        confirmou = False
+        limite = time.monotonic() + 60
+        while "op=propostasItens" not in pg.url:
+            if time.monotonic() > limite:
+                raise FalhaRobo("O SGCOR não abriu a tela de Itens em 60 s depois do Avançar")
+            if self.ultimo_dialogo:                        # alert do navegador (recusado em _dialogo): para na hora
+                raise FalhaRobo(f"SGCOR recusou o Avançar: {self.ultimo_dialogo}")
+            aviso = self._swal_aberto()
+            if aviso is not None:
+                if not confirmou and "vigência" in aviso.lower() and ini in aviso and fim in aviso:
+                    pg.locator(".swal2-confirm").click()   # "Sim, estão corretas" (Q52)
+                    confirmou = True
+                    try:
+                        pg.locator(".swal2-popup").first.wait_for(state="hidden", timeout=5000)
+                    except Exception:
+                        pass                               # trocou de página ou abriu outro aviso: o laço vê
+                    continue
+                if confirmou:                              # p.ex. "Número máximo de parcelas…"
+                    raise FalhaRobo(f"SGCOR recusou o Avançar: {aviso}")
                 raise FalhaRobo(f"Aviso inesperado ao Avançar: {aviso}")
-        pg.wait_for_url(re.compile(r"op=propostasItens"), timeout=60000)
-        self.esperar_tela()
+            pg.wait_for_timeout(100)
+        pg.wait_for_url(re.compile(r"op=propostasItens"), timeout=60000)     # espera o load
+        self.esperar_lista()
         m = re.search(r"propostaId=(\d+)", pg.url)
         if not m:
             raise FalhaRobo("Avancei, mas não achei o ID da renovação na tela de Itens")
@@ -352,23 +401,24 @@ class Robo:
         """Q8/Q57: ajusta só o LMI das coberturas casadas pelo dicionário. Qualquer dúvida → FalhaRobo."""
         if not ("op=propostasItens" in self.page.url and f"propostaId={proposta_id}" in self.page.url):
             # retomada: a tela atual não é a de Itens desta renovação (logo depois do Avançar já é)
-            self.ir(self._url_completa(f"?op=propostasItens&form=listar&propostaId={proposta_id}&cadastro=true"))
-            self.esperar_tela()
+            self.ir_lista(self._url_completa(f"?op=propostasItens&form=listar&propostaId={proposta_id}&cadastro=true"))
         html_itens = self.page.content()
         itens = itens_da_proposta(html_itens, proposta_id)
         if len(itens) != 1:
             raise FalhaRobo(f"A renovação tem {len(itens)} itens; o robô só ajusta coberturas com 1 item")
         ramo = ramo_da_tela(html_itens) or ""
         outro_ramo = mudou_de_ramo(ramo, caso)       # Q71/Q73: ex.: lotérica renovando a partir de um Caixa Aqui
+        incluiu = False
         url_lista_cob = self._url_completa(
             f"popup.php?op=propostasItensCoberturas&form=listar&propostaId={proposta_id}&propostaItemId={itens[0]}")
-        self.ir(url_lista_cob, popup=True)
+        self.ir_lista(url_lista_cob, popup=True)
         sgcor = ler_coberturas_item(self.page.content())
         if outro_ramo:
             log.info("%s: renovação no ramo %s, diferente do da proposta: as coberturas de Incêndio e Valores que "
                      "faltarem serão incluídas.", caso.nome, ramo)
-            if self._incluir_coberturas(caso, proposta_id, itens[0], sgcor, dic):
-                self.ir(url_lista_cob, popup=True)
+            incluiu = self._incluir_coberturas(caso, proposta_id, itens[0], sgcor, dic)
+            if incluiu:
+                self.ir_lista(url_lista_cob, popup=True)
                 sgcor = ler_coberturas_item(self.page.content())
         ajustes, pend, avisos = plano_coberturas(caso.coberturas, sgcor, dic, self.cfg.coberturas_ajustar)
         self.print_(caso, "coberturas_antes")
@@ -392,17 +442,19 @@ class Robo:
             campo.dispatch_event("change")
             if normalizar_valor(campo.input_value()) != normalizar_valor(formatar_dinheiro(a.para)):
                 raise FalhaRobo(f"LMI de “{a.nome_sgcor}” não aceitou {formatar_dinheiro(a.para)}")
-            self._salvar_e_esperar(self._salvar(), f" o LMI de “{a.nome_sgcor}”")
+            self._salvar_e_esperar(self._salvar(), f" o LMI de “{a.nome_sgcor}”", volta_lista=True)
             log.info("%s: LMI de “%s” %s → %s", caso.nome, a.nome_sgcor, a.de, a.para)
-        # confere a lista de novo
-        self.ir(url_lista_cob, popup=True)
-        depois, pend, _ = plano_coberturas(caso.coberturas, ler_coberturas_item(self.page.content()), dic,
-                                          self.cfg.coberturas_ajustar)
-        self.print_(caso, "coberturas_depois")
-        if depois or pend:
-            raise FalhaRobo("Coberturas não ficaram iguais à proposta depois de salvar")
+        if ajustes:
+            # confere a lista de novo (Q86: só quando algo foi salvo — sem ajuste, a lista lida acima já é a final;
+            # depois de incluir, ela já foi relida)
+            self.ir_lista(url_lista_cob, popup=True)
+            sgcor = ler_coberturas_item(self.page.content())
+            depois, pend, _ = plano_coberturas(caso.coberturas, sgcor, dic, self.cfg.coberturas_ajustar)
+            self.print_(caso, "coberturas_depois")
+            if depois or pend:
+                raise FalhaRobo("Coberturas não ficaram iguais à proposta depois de salvar")
         if outro_ramo:
-            faltam = self._tipos_que_faltam(caso, ler_coberturas_item(self.page.content()), dic)
+            faltam = self._tipos_que_faltam(caso, sgcor, dic)
             if faltam:
                 raise FalhaRobo("Coberturas incluídas não apareceram no item: " + ", ".join(faltam))
 
@@ -442,11 +494,11 @@ class Robo:
         """Repasse: produtor = consultor, Repasse Sobre = VF, Valor Fixo = bônus, Parcela Única →
         'Salvar e Gerar Parcelamento' (gera as parcelas)."""
         # olha a lista primeiro: numa retomada o repasse já foi copiado, e copiar de novo poderia duplicá-lo
-        self.ir(self._url_completa(f"?op=repasses&form=listar&propostaId={proposta_id}&cadastro=true"))
+        self.ir_lista(self._url_completa(f"?op=repasses&form=listar&propostaId={proposta_id}&cadastro=true"))
         urls = [u for u in url_editar_repasse(self.page.content()) if f"propostaId={proposta_id}" in u]
         if not urls:
             # = Avançar da tela de Itens: copia o repasse da apólice anterior e abre a lista de repasses
-            self.ir(self._url_completa(
+            self.ir_lista(self._url_completa(
                 f"?op=propostas&form=getRepassesPropostaOriginal&cadastro=true&propostaId={proposta_id}"))
             urls = [u for u in url_editar_repasse(self.page.content()) if f"propostaId={proposta_id}" in u]
         if len(urls) != 1:
@@ -528,7 +580,11 @@ class Robo:
             campo = self.page.locator("input[name='descricao']").first
             campo.wait_for(state="visible")
             campo.fill(descricao)
-            self.page.locator("input[type='file'][name='arquivo']").first.set_input_files(str(arq))
+            # Q82: o conteúdo vai direto (não o caminho): com a pasta no Google Drive o arquivo pode estar só na nuvem
+            # e o Chrome dava ERR_FILE_NOT_FOUND; ler aqui faz o Drive baixar (espera e tenta de novo se precisar)
+            self.page.locator("input[type='file'][name='arquivo']").first.set_input_files(
+                {"name": arq.name, "mimeType": mimetypes.guess_type(arq.name)[0] or "application/pdf",
+                 "buffer": ler_arquivo(arq)})   # Q88: o acordo pode ser PNG/JPG
             with self.page.expect_navigation(timeout=60000):
                 self._salvar().click()
             log.info("%s: anexo %s enviado (%s) em %.1f s.", caso.nome, descricao, arq.name, time.monotonic() - t0)

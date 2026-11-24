@@ -17,10 +17,11 @@ from PySide6.QtCore import QObject, Signal
 from ..config import RAIZ, Config
 from ..estado import Ajuste, pasta_dados
 from ..modelos import Caso
-from ..scanner import (analisar_pasta, assinatura, cnpj_da_pasta, marcar_ja_cadastradas, pastas_de,
+from ..scanner import (analisar_pasta, assinatura, cnpj_da_pasta, lotericas_cadastradas, marcar_ja_cadastradas,
+                       pastas_de,
                        seguradora_da_pasta, soltos)
 
-VERSAO_LEITURA = "19"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
+VERSAO_LEITURA = "22"   # aumentar quando a lógica de leitura mudar, para invalidar o cache em disco
 
 
 def _versao() -> str:
@@ -82,7 +83,8 @@ class Leitor(QObject):
             reler: list[tuple[Path, str, tuple, tuple]] = []
             for pasta, seg in alvos:
                 a = ajustes.get(pasta)
-                chave_aj = (a.parcelas, a.forma, a.proposta, a.vigencia, a.sem_apolice, a.cnpj_confirmado) if a else ()
+                chave_aj = ((a.parcelas, a.forma, a.proposta, a.vigencia, a.sem_apolice, a.cnpj_confirmado,
+                             a.vigencia_alterada) if a else ())
                 ass = assinatura(pasta)
                 hit = self._cache.get(pasta)
                 if hit and hit[0] == ass and hit[1] == chave_aj:
@@ -127,8 +129,7 @@ class Leitor(QObject):
 
     def _ler_cadastradas(self, raizes: list[Path]) -> dict[Path, str | None]:
         """Q75: CNPJ de cada pasta em _CADASTRADOS (do nome ou da proposta), com cache — só relê a pasta nova/mudada."""
-        pastas = [p for r in raizes if (r / "_CADASTRADOS").is_dir() for p in (r / "_CADASTRADOS").iterdir()
-                  if p.is_dir()]
+        pastas = lotericas_cadastradas(raizes)
         assin = {p: assinatura(p) for p in pastas}
         reler = [p for p in pastas if p not in self._cad or self._cad[p][0] != assin[p]]
         if reler:

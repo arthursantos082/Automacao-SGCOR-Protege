@@ -65,12 +65,12 @@ def _palavra(page, texto: str):
     return next((w for w in page.extract_words() if w["text"] == texto), None)
 
 
-def ler_tokio(caminho: Path) -> list[Cobertura]:
+def ler_tokio(caminho: Path, paginas: int | None = None) -> list[Cobertura]:
     """Tabelas 'Cobertura Contratada | Limite Máximo de Indenização | Franquia' (podem continuar na página seguinte).
     O LMI fica na 1ª linha de cada cobertura; as linhas seguintes só continuam o nome."""
     itens: list[list] = []   # [nome, lmi]
     with pdfplumber.open(caminho) as doc:
-        for page in doc.pages:
+        for page in doc.pages[:paginas]:
             ws = page.extract_words()
             cab = next((w for w in ws if w["text"] == "Contratada"), None)
             if not cab:
@@ -93,11 +93,11 @@ _FIM_PORTO = ("COBERTURA DE DESPESAS FIXAS DECORRENTES", "COBERTURA DE LUCROS", 
               "DEMONSTRATIVO", "SERVIÇOS")
 
 
-def ler_porto(caminho: Path) -> list[Cobertura]:
+def ler_porto(caminho: Path, paginas: int | None = None) -> list[Cobertura]:
     """Tabela 'COBERTURA | L.M.I. | PRÊMIO | P.O.S.'. O nome longo quebra acima e abaixo da linha do LMI,
     então cada linha só-de-nome vai para a linha com LMI mais próxima na vertical."""
     with pdfplumber.open(caminho) as doc:
-        for page in doc.pages:
+        for page in doc.pages[:paginas]:
             ws = page.extract_words()
             cab = next((w for w in ws if w["text"] == "L.M.I."), None)
             if not cab:
@@ -133,8 +133,9 @@ def ler_porto(caminho: Path) -> list[Cobertura]:
     return []
 
 
-def ler(caminho: Path, seguradora: str) -> list[Cobertura]:
-    return ler_porto(caminho) if seguradora == "PORTO" else ler_tokio(caminho)
+def ler(caminho: Path, seguradora: str, paginas: int | None = None) -> list[Cobertura]:
+    """paginas: só as primeiras (Q88: as condições gerais anexadas à cotação não entram)."""
+    return ler_porto(caminho, paginas) if seguradora == "PORTO" else ler_tokio(caminho, paginas)
 
 
 # ---------------------------------------------------------------- dicionário (config/coberturas.toml)

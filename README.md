@@ -19,16 +19,20 @@ O consultor só precisa agir quando aparece uma **pendência**, por exemplo quan
 Cada lotérica tem a sua própria pasta, com o nome da lotérica, dentro de `FECHADOS PORTO` ou `FECHADOS TOKIO`. Dentro dela ficam só dois PDFs: o acordo e a proposta da seguradora.
 
 ```
-FECHADOS TOKIO
-└── COSTA & CANDIDA LTDA
-    ├── ACORDO COSTA & CANDIDA LTDA.pdf     ← conversa/e-mail com o que foi combinado
-    └── COSTA & CANDIDA LTDA.pdf            ← proposta da seguradora
+(pasta-mãe, ex.: a pasta do Google Drive)
+├── FECHADOS PORTO
+├── FECHADOS TOKIO
+│   └── COSTA & CANDIDA LTDA
+│       ├── ACORDO COSTA & CANDIDA LTDA.pdf     ← conversa/e-mail com o que foi combinado
+│       └── COSTA & CANDIDA LTDA.pdf            ← proposta da seguradora
+└── _CADASTRADOS                            ← o robô cria e move para cá as que terminou
 ```
 
 - O nome da pasta pode ser o nome da lotérica, o nome + CNPJ, ou só o CNPJ.
 - Outros PDFs na pasta (por exemplo, a apólice anterior) são ignorados: o robô só usa o acordo e a proposta.
 - Não deixe PDF solto direto em `FECHADOS PORTO` ou `FECHADOS TOKIO`.
-- A pasta `_CADASTRADOS` é do robô: ele move para lá cada lotérica que termina. Se uma lotérica que já está lá aparecer de novo em `FECHADOS` (mesmo CNPJ ou mesmo nome), ela fica como pendência "Já cadastrada", para não ser cadastrada duas vezes.
+- Salve a proposta pelo botão de **baixar** do portal da seguradora, não por "Imprimir → Microsoft Print to PDF": impressa, ela vira imagem e o AutoCOR não lê (aparece a pendência "Proposta salva como imagem"). Acordo em imagem (print do WhatsApp, PNG ou JPG, por exemplo) fica com pendência **laranja**: abra o acordo e informe as parcelas e a forma no Resolver.
+- A pasta `_CADASTRADOS` é do robô e fica **ao lado** de `FECHADOS PORTO` e `FECHADOS TOKIO` (uma só para as duas; se não existir, ele cria). Ele move para lá cada lotérica que termina. As `_CADASTRADOS` antigas, de dentro de cada `FECHADOS`, continuam aparecendo em "Ver cadastradas". Se uma lotérica que já está lá aparecer de novo em `FECHADOS` (mesmo CNPJ ou mesmo nome), ela fica como pendência "Já cadastrada", para não ser cadastrada duas vezes.
 
 O AutoCOR identifica cada PDF pelo conteúdo, então nomes um pouco diferentes também funcionam. Mesmo assim, siga esse padrão para todo mundo achar tudo.
 
@@ -41,7 +45,8 @@ O AutoCOR abre com um tutorial, que também pode ser aberto no botão **Como usa
 3. Escolha o seu nome em **Consultor / Produtor**. É esse nome que vai no repasse.
 4. Marque as lotéricas prontas, clique em **Executar selecionadas** e confirme o resumo.
 5. Acompanhe pelo log. Se algo falhar depois de criada a renovação, ela fica **Pela metade**. Nesse caso, execute de novo, que o robô continua de onde parou.
-6. Em **Ver cadastradas** aparecem as lotéricas já cadastradas, com o ID do SGCOR.
+6. Em **Ver cadastradas** aparecem as lotéricas já cadastradas, com o ID do SGCOR. Se você terminar um cadastro à mão no SGCOR, selecione a lotérica e use **Mover para cadastradas**.
+7. Para cadastrar uma lotérica com outra vigência, use **Alterar vigência…** no quadro Resolver.
 
 O ícone ao lado do CNPJ copia o número. O botão **Tema**, no cabeçalho, troca entre claro, escuro e automático (igual ao Windows).
 
@@ -117,7 +122,7 @@ gh release create v1.0.1 dist\AutoCOR.zip --title "AutoCOR 1.0.1" --notes "O que
 | `src/sgcor_renov/ui/` | janela (PySide6), tutorial, cadastradas, leitor em paralelo e a thread do robô |
 | `config/` | configuração editável |
 | `docs/f0-mapa-sgcor.md` | mapa das telas e seletores do SGCOR |
-| `plan.md` | plano e registro de decisões (Q1…Q81) |
+| `plan.md` | plano e registro de decisões (Q1…Q88) |
 | `empacotar/` | ponto de entrada e script do PyInstaller |
 
 ### Regras de segurança

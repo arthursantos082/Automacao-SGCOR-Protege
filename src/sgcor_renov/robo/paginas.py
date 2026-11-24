@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 from ..config import Config
 from ..modelos import Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro, so_digitos
+from ..regras import vigencia_do_caso
 
 # ---------------------------------------------------------------- busca
 
@@ -206,13 +207,14 @@ def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config,
     topo = cand[0]
     if len(cand) > 1 and cand[1].fim == topo.fim:
         return None, f"Mais de uma apólice com a mesma vigência final ({topo.fim}) — conferir no SGCOR"
-    if topo.inicio == cfg.vigencia_inicio or topo.status == "Renovada":
+    inicio_nova = vigencia_do_caso(caso, cfg)[0]          # Q83: pode ter sido alterada pelo consultor
+    if topo.inicio == inicio_nova or topo.status == "Renovada":
         return None, (f"A renovação parece já cadastrada no SGCOR (ID {topo.proposta_id}, vigência "
                       f"{topo.inicio} a {topo.fim}, {topo.status or topo.tipo}) — conferir (Q30)")
     # Q55: a apólice a renovar é a que termina quando a nova começa (sem comparar nº: muitas têm 123456)
-    if topo.fim != cfg.vigencia_inicio:
+    if topo.fim != inicio_nova:
         return None, (f"A apólice mais recente em Produção (ID {topo.proposta_id}) termina em {topo.fim}, "
-                      f"não em {cfg.vigencia_inicio} — conferir no SGCOR")
+                      f"não em {inicio_nova} — conferir no SGCOR")
     return topo, None
 
 
@@ -260,12 +262,13 @@ def campos_primeira_tela(caso: Caso, cfg: Config, hoje: date | None = None) -> l
     """Exatamente os campos marcados pelo consultor; o resto fica como o SGCOR trouxe."""
     p = caso.proposta
     hoje = hoje or date.today()
+    ini, fim = vigencia_do_caso(caso, cfg)          # Q83: a alterada pelo consultor, se houver
     return [
         Campo("Proposta", "input[name='proposta']", p.numero or ""),
         Campo("Apólice", "#numeroApolice", cfg.apolice_provisoria),
         Campo("Apólice (Baixa comissão)", "input[name='apoliceBaixaComissao']", cfg.apolice_provisoria),
-        Campo("Vigência início", "#data_texto_dataVigenciaInicial", cfg.vigencia_inicio),
-        Campo("Vigência fim", "#data_texto_dataVigenciaFinal", cfg.vigencia_fim),
+        Campo("Vigência início", "#data_texto_dataVigenciaInicial", ini),
+        Campo("Vigência fim", "#data_texto_dataVigenciaFinal", fim),
         Campo("Confirma as datas de vigência?", "#verificaConfirmacaoVigencia", "sim", "checkbox"),
         Campo("Comissão", "#comissao", f"{p.comissao},00"),
         Campo("Prêmio Total", "#premioTotal", formatar_dinheiro(caso.premio_total)),

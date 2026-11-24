@@ -206,3 +206,19 @@ def test_mudou_de_ramo():
     assert mudou_de_ramo("EMPRESARIAL CAIXA AQUI", lot)            # lotérica vinda de um Caixa Aqui → inclui
     assert not mudou_de_ramo("EMPRESARIAL LOTÉRICO", lot)
     assert not mudou_de_ramo(None, lot) and not mudou_de_ramo("", cca)
+
+
+# ---- Q83: vigência alterada pelo consultor
+
+def test_vigencia_alterada_vai_para_a_primeira_tela_e_para_a_busca():
+    c = _caso()
+    c.vigencia_alterada = ("05/12/2026", "05/12/2027")
+    campos = {x.rotulo: x.valor for x in campos_primeira_tela(c, CFG, hoje=date(2026, 11, 23))}
+    assert (campos["Vigência início"], campos["Vigência fim"]) == ("05/12/2026", "05/12/2027")
+    # a apólice a renovar é a que termina no início NOVO (05/12/2026), não no da configuração
+    linha, motivo = escolher_apolice([_l("7", "05/12/2026", ini="05/12/2025")], c, CFG)
+    assert motivo is None and linha.proposta_id == "7"
+    linha, motivo = escolher_apolice([_l("8", "31/12/2026")], c, CFG)
+    assert linha is None and "não em 05/12/2026" in motivo
+    # sem alteração continua a da configuração
+    assert escolher_apolice([_l("8", "31/12/2026")], _caso(), CFG)[1] is None

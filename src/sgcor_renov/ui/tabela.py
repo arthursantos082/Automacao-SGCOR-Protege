@@ -7,7 +7,7 @@ from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QRect, QRec
 from PySide6.QtGui import QBrush, QColor, QGuiApplication, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
-from ..modelos import Caso
+from ..modelos import PEND_ACORDO_IMAGEM, Caso
 from ..numeros import formatar_cnpj, formatar_dinheiro
 
 FORMAS = {"boleto": "Boleto", "cartao": "Cartão de crédito", "cartao_porto": "Cartão Porto",
@@ -121,6 +121,8 @@ class ModeloCasos(QAbstractTableModel):
     def cor_status(self, c: Caso) -> str:
         if c.pasta in self.metade:
             return LARANJA            # não confundir com o verde do Pronto
+        if c.pendencias and all(t.startswith(PEND_ACORDO_IMAGEM) for t in c.pendencias):
+            return LARANJA            # Q87: só falta o consultor ler o acordo em imagem — destaca das vermelhas
         return VERDE if c.status == "Pronto" else VERMELHO
 
     def definir(self, casos: list[Caso], metade: dict[Path, str] | None = None) -> None:

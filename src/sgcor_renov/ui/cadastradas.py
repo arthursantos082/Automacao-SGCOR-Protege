@@ -1,4 +1,5 @@
-"""Lotéricas já cadastradas: as pastas em FECHADOS X/_CADASTRADOS, com o ID do SGCOR quando foi o robô que fez."""
+"""Lotéricas já cadastradas: as pastas em _CADASTRADOS (Q85: a da pasta-mãe e as antigas dentro de cada FECHADOS),
+com o ID do SGCOR quando foi o robô que fez."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..estado import Estado
-from ..scanner import seguradora_da_pasta
+from ..scanner import pastas_cadastrados, seguradora_da_pasta
 
 
 @dataclass
@@ -27,12 +28,9 @@ class Cadastrada:
 def listar(raizes: list[Path], estado: Estado) -> list[Cadastrada]:
     reg = estado.cadastradas()
     out: list[Cadastrada] = []
-    for raiz in raizes:
-        dir_cad = raiz / "_CADASTRADOS"
-        if not dir_cad.is_dir():
-            continue
-        try:
-            seg = seguradora_da_pasta(raiz)
+    for dir_cad in pastas_cadastrados(raizes):
+        try:      # a antiga, dentro de FECHADOS X, diz a seguradora; a da pasta-mãe é das duas (vale o registro)
+            seg = seguradora_da_pasta(dir_cad.parent) if dir_cad.parent in raizes else ""
         except ValueError:
             seg = ""
         for p in dir_cad.iterdir():
@@ -76,7 +74,7 @@ class JanelaCadastradas(QDialog):
         self.t = QTableWidget(len(self.itens), len(self.COLUNAS))
         self.t.setHorizontalHeaderLabels(self.COLUNAS)
         for r, c in enumerate(self.itens):
-            vals = [c.seguradora.title(), c.nome, c.proposta_id or "—", _data_br(c.quando), c.produtor or "—"]
+            vals = [c.seguradora.title() or "—", c.nome, c.proposta_id or "—", _data_br(c.quando), c.produtor or "—"]
             for col, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 if col in (2, 3):

@@ -31,7 +31,10 @@ PAGINAS = [
      "<br><ul style='margin-left: -20px;'>"
      "<li>Uma pasta por lotérica; nada de PDF solto direto em FECHADOS PORTO/TOKIO.</li>"
      "<li>Lotérica da Porto vai em FECHADOS PORTO; da Tokio, em FECHADOS TOKIO.</li>"
-     "<li>A pasta <b>_CADASTRADOS</b> é do robô: ele move para lá cada lotérica que terminar. Não coloque nada nela.</li>"
+     "<li>Baixe a proposta pelo botão de <b>baixar</b> do portal da seguradora — impressa em PDF ela vira imagem e o "
+     "AutoCOR não lê. Acordo em imagem (print, PNG ou JPG) fica em <b>laranja</b>: informe as parcelas e a forma no Resolver.</li>"
+     "<li>A pasta <b>_CADASTRADOS</b> é do robô e fica ao lado de FECHADOS PORTO e FECHADOS TOKIO (se não existir, ele "
+     "cria): ele move para lá cada lotérica que terminar. Não coloque nada nela.</li>"
      "</ul>"),
     ("2. Confira as lotéricas",
      "O AutoCOR lê as pastas e mostra cada lotérica na lista:"
