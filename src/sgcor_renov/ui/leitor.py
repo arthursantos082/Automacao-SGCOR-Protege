@@ -32,7 +32,13 @@ def _versao() -> str:
 
 
 def _analisar(pasta: Path, seg: str, cfg: Config, ajuste: Ajuste | None) -> Caso:
-    return analisar_pasta(pasta, seg, cfg, ajuste)
+    """Q92: um erro numa pasta vira pendência DELA; antes derrubava a leitura de todas ("Erro ao ler as pastas")."""
+    try:
+        return analisar_pasta(pasta, seg, cfg, ajuste)
+    except Exception as e:  # noqa: BLE001
+        caso = Caso(seguradora=seg, pasta=pasta, nome=pasta.name)
+        caso.pendencias.append(f"Erro ao ler a pasta: {type(e).__name__}: {e}")
+        return caso
 
 
 class Leitor(QObject):

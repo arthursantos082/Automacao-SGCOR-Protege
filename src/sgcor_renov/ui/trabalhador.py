@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from ..caminhos import longo
 from ..coberturas import Dicionario
 from ..config import Config
 from ..estado import Estado, pasta_dados
@@ -57,7 +58,7 @@ def mover_para_cadastrados(pasta: Path) -> Path:
     destino = destino_dir / pasta.name
     if destino.exists():
         destino = destino_dir / f"{pasta.name} ({datetime.now():%Y%m%d-%H%M%S})"
-    shutil.move(str(pasta), str(destino))
+    shutil.move(longo(pasta), longo(destino))
     return destino
 
 

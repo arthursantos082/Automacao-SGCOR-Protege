@@ -7,6 +7,8 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 
+from .caminhos import longo
+
 
 def _garantir_cryptography() -> str | None:
     """Q78: o pdfminer importa o `cryptography` logo de cara, mas só o usa para PDF protegido (AES). Se a parte
@@ -70,7 +72,7 @@ def so_imagem(caminho: Path, paginas: int = 2) -> bool:
     texto. Erro ao abrir → False (a leitura normal mostra o erro dela)."""
     try:
         import pypdfium2 as pdfium
-        doc = pdfium.PdfDocument(str(caminho))
+        doc = pdfium.PdfDocument(longo(caminho))
     except Exception:
         return False
     try:
@@ -108,7 +110,7 @@ def paginas_uteis(caminho: Path) -> int | None:
     - o resto (apólice, condições gerais, boleto…) → 3, só para reconhecer o que é."""
     try:
         import pypdfium2 as pdfium
-        doc = pdfium.PdfDocument(str(caminho))
+        doc = pdfium.PdfDocument(longo(caminho))
     except Exception:
         return None
     try:
@@ -151,7 +153,7 @@ def texto(caminho: Path, max_paginas: int | None = None, so_uteis: bool = False)
         raise PdfImagem(caminho.name)
     if so_uteis and max_paginas is None:
         max_paginas = paginas_uteis(caminho)
-    with pdfplumber.open(caminho) as doc:
+    with pdfplumber.open(longo(caminho)) as doc:
         return "\n".join(p.extract_text() or "" for p in doc.pages[:max_paginas])
 
 
@@ -162,7 +164,7 @@ def linhas(caminho: Path, tolerancia_y: float = 3.0) -> list[Linha]:
     separadas, para não misturar a fala do cliente com a do atendente.
     """
     resultado: list[Linha] = []
-    with pdfplumber.open(caminho) as doc:
+    with pdfplumber.open(longo(caminho)) as doc:
         for n, page in enumerate(doc.pages):
             largura = page.width
             palavras = sorted(page.extract_words(keep_blank_chars=False), key=lambda w: (round(w["top"]), w["x0"]))

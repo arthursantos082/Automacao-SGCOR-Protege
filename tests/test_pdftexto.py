@@ -144,3 +144,39 @@ def test_paginas_uteis(tmp_path):
     _pdf_paginas(curto, ["APOLICE"] * 20)
     assert paginas_uteis(curto) is None
     assert paginas_uteis(tmp_path / "nao-existe.pdf") is None
+
+
+# ---- Q92: caminho com mais de 260 caracteres (Drive compartilhado: ".shortcut-targets-by-id\<id>\…")
+
+def test_caminho_longo_e_lido_movido_e_anexado(tmp_path):
+    import os
+    from pathlib import Path
+    from sgcor_renov import scanner
+    from sgcor_renov.caminhos import longo, longo_path
+    from sgcor_renov.pdftexto import paginas_uteis, so_imagem, texto
+    from sgcor_renov.robo.navegador import ler_arquivo
+    from sgcor_renov.ui.trabalhador import mover_para_cadastrados
+    raiz = tmp_path / "Tokio"
+    # como no caso real: a pasta fica abaixo de 240 (lista normal), o PDF dentro dela passa de 260
+    pasta = raiz / ("LOTERICA " + "R" * max(10, 200 - len(str(raiz))))
+    os.makedirs(longo(pasta))
+    pdf = pasta / ("PROPOSTA " + "X" * (275 - len(str(pasta))) + ".pdf")
+    assert len(str(pasta)) < 240 and len(str(pdf)) > 260
+    _pdf_com_texto(longo_path(pdf))
+    with pytest.raises(OSError):
+        open(str(pdf), "rb")                                     # sem o prefixo o Windows não acha
+    assert not so_imagem(pdf) and paginas_uteis(pdf) is None
+    assert "PROPOSTA DE SEGURO" in texto(pdf, so_uteis=True)
+    assert len(ler_arquivo(pdf, tentativas=1)) > 0
+    assert scanner.assinatura(pasta)[0][0] == pdf.name
+    destino = mover_para_cadastrados(pasta)
+    assert os.path.exists(longo(destino / pdf.name)) and not os.path.exists(longo(pasta))
+
+
+def test_longo_so_muda_caminho_comprido():
+    from sgcor_renov.caminhos import longo
+    curto = r"C:\x\a.pdf"
+    assert longo(curto) == curto
+    comprido = "C:" + "\\" + "p" * 250 + r"\a.pdf"
+    assert longo(comprido) == r"\\?" + "\\" + comprido and longo(longo(comprido)) == longo(comprido)
+    assert longo(r"\\srv\c" + "\\" + "p" * 250).startswith(r"\\?\UNC\srv\c" + "\\")

@@ -280,3 +280,22 @@ def test_assinatura_muda_com_a_foto_do_acordo(tmp_path):
     antes = scanner.assinatura(tmp_path)
     (tmp_path / "DE ACORDO.png").write_bytes(b"png")
     assert scanner.assinatura(tmp_path) != antes
+
+
+def test_arquivo_que_nao_da_para_consultar_nao_derruba_a_leitura(tmp_path, monkeypatch):
+    """Q92: o stat de um PDF falhando (caminho longo no Drive) derrubava a leitura de TODAS as pastas."""
+    from pathlib import Path
+    from sgcor_renov.ui import leitor
+    (tmp_path / "a.pdf").write_bytes(b"x")
+    stat = Path.stat
+
+    def falha(self, *a, **k):
+        if self.name == "a.pdf":
+            raise FileNotFoundError(3, "O sistema não pode encontrar o caminho especificado", str(self))
+        return stat(self, *a, **k)
+    monkeypatch.setattr(Path, "stat", falha)
+    assert scanner.assinatura(tmp_path) == (("a.pdf", -1, -1),)
+    # e um erro inesperado na análise vira pendência só daquela pasta
+    monkeypatch.setattr(leitor, "analisar_pasta", lambda *a: 1 / 0)
+    caso = leitor._analisar(tmp_path, "TOKIO", None, None)
+    assert caso.status == "Pendente" and caso.pendencias[0].startswith("Erro ao ler a pasta: ZeroDivisionError")

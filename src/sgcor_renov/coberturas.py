@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pdfplumber
 
+from .caminhos import longo
 from .numeros import DINHEIRO, dinheiro
 
 _LMI = re.compile(rf"^R\$\s*({DINHEIRO})")
@@ -69,7 +70,7 @@ def ler_tokio(caminho: Path, paginas: int | None = None) -> list[Cobertura]:
     """Tabelas 'Cobertura Contratada | Limite Máximo de Indenização | Franquia' (podem continuar na página seguinte).
     O LMI fica na 1ª linha de cada cobertura; as linhas seguintes só continuam o nome."""
     itens: list[list] = []   # [nome, lmi]
-    with pdfplumber.open(caminho) as doc:
+    with pdfplumber.open(longo(caminho)) as doc:
         for page in doc.pages[:paginas]:
             ws = page.extract_words()
             cab = next((w for w in ws if w["text"] == "Contratada"), None)
@@ -96,7 +97,7 @@ _FIM_PORTO = ("COBERTURA DE DESPESAS FIXAS DECORRENTES", "COBERTURA DE LUCROS", 
 def ler_porto(caminho: Path, paginas: int | None = None) -> list[Cobertura]:
     """Tabela 'COBERTURA | L.M.I. | PRÊMIO | P.O.S.'. O nome longo quebra acima e abaixo da linha do LMI,
     então cada linha só-de-nome vai para a linha com LMI mais próxima na vertical."""
-    with pdfplumber.open(caminho) as doc:
+    with pdfplumber.open(longo(caminho)) as doc:
         for page in doc.pages[:paginas]:
             ws = page.extract_words()
             cab = next((w for w in ws if w["text"] == "L.M.I."), None)

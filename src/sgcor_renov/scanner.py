@@ -8,6 +8,7 @@ from . import acordo as acordo_mod
 from . import coberturas as cob_mod
 from . import propostas as prop_mod
 from . import regras
+from .caminhos import longo_path
 from .config import Config
 from .modelos import PEND_ACORDO_IMAGEM, PEND_PROPOSTA_IMAGEM, Caso, Escolha
 from .numeros import formatar_cnpj, separar_cnpj
@@ -19,7 +20,7 @@ FOTOS = (".png", ".jpg", ".jpeg")   # Q88: acordo salvo como foto/print, fora de
 
 
 def _fotos(pasta: Path) -> list[Path]:
-    return sorted(p for p in pasta.iterdir() if p.is_file() and p.suffix.lower() in FOTOS)
+    return sorted(p for p in pasta.iterdir() if p.suffix.lower() in FOTOS and longo_path(p).is_file())
 
 
 def dir_cadastrados(pasta_loterica: Path) -> Path:
@@ -69,7 +70,17 @@ def pastas_de(raiz: Path) -> list[Path]:
 
 def assinatura(pasta: Path) -> tuple:
     """Muda quando um PDF da pasta é criado, apagado, renomeado ou alterado (para reler só o necessário)."""
-    return tuple(sorted((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in [*pasta.glob("*.pdf"), *_fotos(pasta)]))
+    return tuple(sorted((p.name, *_carimbo(p)) for p in [*pasta.glob("*.pdf"), *_fotos(pasta)]))
+
+
+def _carimbo(p: Path) -> tuple[int, int]:
+    """Q92: data e tamanho; arquivo que não dá para consultar (o Drive tirou do lugar, caminho estranho) não derruba
+    a leitura de TODAS as pastas — conta como mudado e a leitura da pasta mostra o problema dele."""
+    try:
+        st = longo_path(p).stat()
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return -1, -1
 
 
 def varrer(raizes: list[Path], cfg: Config, ajustes=None) -> list[Caso]:

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from playwright.sync_api import Dialog, Page, sync_playwright
 
+from ..caminhos import longo_path
 from ..config import INCLUIR_PADRAO, Config
 from ..modelos import Caso
 from ..numeros import formatar_dinheiro
@@ -34,7 +35,7 @@ def ler_arquivo(arq: Path, tentativas: int = 6, espera: float = 5.0) -> bytes:
     erro: Exception | None = None
     for i in range(tentativas):
         try:
-            dados = arq.read_bytes()
+            dados = longo_path(arq).read_bytes()
             if dados:
                 return dados
             erro = OSError("arquivo vazio (ainda baixando do Drive?)")
@@ -569,7 +570,7 @@ class Robo:
             if descricao in ja:
                 log.info("%s: anexo %s já existe — não reenviado.", caso.nome, descricao)
                 continue
-            if arq.stat().st_size > 10 * 1024 * 1024:
+            if longo_path(arq).stat().st_size > 10 * 1024 * 1024:
                 raise FalhaRobo(f"{arq.name} tem mais de 10 MB (limite do SGCOR)")
             t0 = time.monotonic()
             # anexos mais rápidos: o formulário só precisa da Descrição e do arquivo, então espera o campo aparecer
