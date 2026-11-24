@@ -1152,13 +1152,22 @@ class Confirmacao(QDialog):
         lay.addWidget(bts)
 
 
+def identidade_na_barra() -> str | None:
+    """Rodando pelo Python (código-fonte): identidade própria, senão o Windows agrupa com o ícone do Python.
+    Q93: no AutoCOR.exe, nenhuma — a identidade é a do próprio .exe, a mesma dos atalhos do Menu Iniciar e da área de
+    trabalho. Com a própria, o Windows via a janela e o atalho como programas diferentes e o ícone fixado na barra de
+    tarefas não ficava."""
+    if sys.platform != "win32" or getattr(sys, "frozen", False):
+        return None
+    return "GrupoProtege.AutoCOR"
+
+
 def main() -> int:
     import multiprocessing
     multiprocessing.freeze_support()   # leitura paralela também funciona no .exe (F4)
-    if sys.platform == "win32":
-        # ícone próprio na barra de tarefas (senão o Windows agrupa com o ícone do Python)
+    if (aumid := identidade_na_barra()):
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GrupoProtege.AutoCOR")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(aumid)
     app = QApplication.instance() or QApplication(sys.argv)   # a instalação pode ter criado (perguntas)
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)

@@ -70,3 +70,13 @@ def test_tema_muda_mesmo_no_estilo_do_windows_10():
     finally:
         QGuiApplication.styleHints().unsetColorScheme()
         APP.setStyle(antes)
+
+
+def test_exe_usa_a_identidade_dos_atalhos_na_barra_de_tarefas(monkeypatch):
+    """Q93: no .exe, nenhuma identidade própria (o ícone fixado na barra de tarefas não ficava)."""
+    import sys
+    from sgcor_renov.ui.janela import identidade_na_barra
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert identidade_na_barra() == "GrupoProtege.AutoCOR"        # pelo Python: não agrupa com o Python
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert identidade_na_barra() is None                           # AutoCOR.exe: a do próprio .exe
