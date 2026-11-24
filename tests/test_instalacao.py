@@ -78,6 +78,33 @@ def test_falha_no_meio_da_copia_volta_a_versao_anterior(tmp_path, monkeypatch):
     assert not (destino / "_internal.antigo").exists()
 
 
+def test_sobra_de_atualizacao_anterior_nao_trava_a_nova(tmp_path, monkeypatch):
+    """Q91: sobrou _internal.antigo de uma atualização anterior (arquivo preso pelo antivírus, somente leitura…):
+    renomear a _internal para esse nome dava "Acesso negado" e a atualização não passava mais."""
+    import os
+    import stat
+    import time
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    destino = tmp_path / "Program Files" / "AutoCOR"
+    copiar_programa(_programa(tmp_path / "v1", "v1"), destino)
+    sobra = destino / "_internal.antigo"
+    sobra.mkdir()
+    (sobra / "somente_leitura.pyd").write_text("v0")
+    os.chmod(sobra / "somente_leitura.pyd", stat.S_IREAD)
+    (sobra / "preso.pyd").write_text("v0")
+    preso = open(sobra / "preso.pyd")                       # ainda em uso: não sai agora
+    try:
+        copiar_programa(_programa(tmp_path / "v2", "v2"), destino)
+    finally:
+        preso.close()
+    assert (destino / "AutoCOR.exe").read_text() == "v2"
+    assert [p.name for p in (destino / "_internal").iterdir()] == ["lib-v2.dll"]
+    # a próxima atualização limpa todas as sobras (inclusive a somente leitura)
+    copiar_programa(_programa(tmp_path / "v3", "v3"), destino)
+    assert [p.name for p in (destino / "_internal").iterdir()] == ["lib-v3.dll"]
+    assert not [p.name for p in destino.iterdir() if p.name.startswith("_internal.antigo")]
+
+
 # ---- Q82: anexo lido pelo AutoCOR (pasta do Google Drive): tenta de novo enquanto o Drive baixa
 
 def test_ler_arquivo_espera_o_drive(tmp_path, monkeypatch):

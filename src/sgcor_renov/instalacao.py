@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 NOME = "AutoCOR"
-VERSAO = "1.1.9"
+VERSAO = "1.2.0"
 EDITOR = "Grupo Protege"
 CHAVE_UNINSTALL = rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{NOME}"
 CSIDL_COMMON_DESKTOP, CSIDL_COMMON_PROGRAMS, CSIDL_PROGRAM_FILES = 0x19, 0x17, 0x26
@@ -66,8 +66,10 @@ def copiar_programa(origem: Path, destino: Path) -> None:
     Agora: renomeia a _internal antiga (se algo estiver em uso, o Windows recusa e nada é apagado), copia a nova e só
     no fim apaga a antiga; se a cópia falhar, volta a antiga."""
     destino.mkdir(parents=True, exist_ok=True)
-    interno, velho = destino / "_internal", destino / "_internal.antigo"
-    shutil.rmtree(velho, ignore_errors=True)            # sobra de uma atualização anterior
+    interno = destino / "_internal"
+    for sobra in destino.glob("_internal.antigo*"):     # sobras de atualizações anteriores
+        _apagar(sobra)
+    velho = _nome_livre(destino, "_internal.antigo")
     if interno.exists():
         _renomear(interno, velho)
     try:
@@ -84,12 +86,36 @@ def copiar_programa(origem: Path, destino: Path) -> None:
                 shutil.copy2(item, alvo)
     except Exception as e:
         if velho.exists():                              # volta como estava
-            shutil.rmtree(interno, ignore_errors=True)
+            _apagar(interno)
             os.replace(velho, interno)
         if isinstance(e, PermissionError):
             raise ArquivoEmUso(str(e)) from e
         raise
-    shutil.rmtree(velho, ignore_errors=True)            # se algo ainda estiver preso, sai na próxima atualização
+    _apagar(velho)                                      # se algo ainda estiver preso, sai na próxima atualização
+
+
+def _apagar(pasta: Path) -> None:
+    """Apaga o que der. Q91: arquivo somente leitura também sai (o rmtree comum desiste dele no Windows); arquivo
+    preso (antivírus, indexador) fica para a próxima atualização."""
+    import stat
+
+    def tirar_somente_leitura(func, caminho, _exc):
+        try:
+            os.chmod(caminho, stat.S_IWRITE)
+            func(caminho)
+        except OSError:
+            pass
+    shutil.rmtree(pasta, onexc=tirar_somente_leitura)
+
+
+def _nome_livre(pasta: Path, nome: str) -> Path:
+    """Q91: se uma sobra não saiu, a _internal antiga vai para outro nome (renomear para uma pasta que já existe dá
+    "Acesso negado" e travava a atualização)."""
+    alvo, n = pasta / nome, 1
+    while alvo.exists():
+        n += 1
+        alvo = pasta / f"{nome}-{n}"
+    return alvo
 
 
 # ---------------------------------------------------------------- Windows (precisa de administrador)
