@@ -29,9 +29,13 @@ class FaixaBonus:
         return (self.de is None or comissao >= self.de) and (self.ate is None or comissao <= self.ate)
 
 
+# Q90: vencimento da 1ª parcela por seguradora. Fica também aqui porque a atualização mantém a config antiga da
+# máquina (a chave antiga "primeira_parcela", igual para as duas, não vale mais)
+PRIMEIRA_PARCELA_PADRAO = {"PORTO": "11/01/2027", "TOKIO": "15/01/2027"}
+
+
 @dataclass
 class Config:
-    primeira_parcela: str
     apolice_provisoria: str
     bonus: list[FaixaBonus]
     cobranca: dict[str, int]
@@ -46,6 +50,10 @@ class Config:
     ramos_renovacao: tuple[str, ...] = RAMOS_PADRAO
     coberturas_incluir: dict | None = None       # tipo → nome da cobertura no SGCOR (None = INCLUIR_PADRAO)
     repositorio: str = "arthursantos082/Automacao-SGCOR-Protege"   # Releases com as atualizações
+    primeira_parcela: dict[str, str] | None = None   # seguradora → vencimento da 1ª parcela (None = o padrão)
+
+    def primeira_parcela_de(self, seguradora: str) -> str:
+        return {**PRIMEIRA_PARCELA_PADRAO, **(self.primeira_parcela or {})}[seguradora.upper()]
 
     def bonus_para(self, comissao: int) -> Decimal | None:
         for f in self.bonus:
@@ -61,7 +69,6 @@ def carregar(caminho: Path = PADRAO) -> Config:
     navegador = str(sg.pop("navegador", "chrome"))
     espera_login = int(sg.pop("espera_login", 300))
     return Config(
-        primeira_parcela=dados["datas"]["primeira_parcela"],
         apolice_provisoria=str(dados["apolice"]["provisoria"]),
         bonus=[FaixaBonus(f.get("de"), f.get("ate"), Decimal(f["valor"])) for f in dados["bonus"]],
         cobranca={k: int(v) for k, v in dados["cobranca"].items()},
@@ -76,4 +83,6 @@ def carregar(caminho: Path = PADRAO) -> Config:
         ramos_renovacao=tuple(r.upper() for r in dados.get("renovacao", {}).get("ramos", RAMOS_PADRAO)),
         coberturas_incluir={**INCLUIR_PADRAO, **dados.get("coberturas", {}).get("incluir", {})},
         repositorio=str(dados.get("atualizacao", {}).get("repositorio", "arthursantos082/Automacao-SGCOR-Protege")),
+        primeira_parcela={seg: str(dados["datas"].get(f"primeira_parcela_{seg.lower()}", padrao))
+                          for seg, padrao in PRIMEIRA_PARCELA_PADRAO.items()},
     )

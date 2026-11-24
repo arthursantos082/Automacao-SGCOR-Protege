@@ -114,8 +114,30 @@ def test_campos_da_primeira_tela_sao_os_do_consultor():
         "Proposta": "15800001", "Apólice": "123456", "Apólice (Baixa comissão)": "123456",
         "Vigência início": "31/12/2026", "Vigência fim": "31/12/2027", "Confirma as datas de vigência?": "sim",
         "Comissão": "21,00", "Prêmio Total": "1.073,80", "IOF": "73,80", "Prêmio Líquido": "1.000,00",
-        "Forma de Cobrança": "1", "Parcelas": "6", "1ª Parcela – Vencimento": "10/01/2027", "Emitida": "18/11/2026",
+        "Forma de Cobrança": "1", "Parcelas": "6", "1ª Parcela – Vencimento": "15/01/2027", "Emitida": "18/11/2026",
     }
+
+
+def test_vencimento_da_primeira_parcela_por_seguradora():
+    """Q90: Porto 11/01/2027, Tokio 15/01/2027 — também com a config antiga (só "primeira_parcela"), que a
+    atualização mantém na máquina."""
+    venc = lambda caso, cfg: {c.rotulo: c.valor for c in campos_primeira_tela(caso, cfg)}["1ª Parcela – Vencimento"]
+    assert venc(_caso("PORTO"), CFG) == "11/01/2027"
+    assert venc(_caso("TOKIO"), CFG) == "15/01/2027"
+    import dataclasses
+    antiga = dataclasses.replace(CFG, primeira_parcela=None)
+    assert (venc(_caso("PORTO"), antiga), venc(_caso("TOKIO"), antiga)) == ("11/01/2027", "15/01/2027")
+
+
+def test_config_antiga_com_vencimento_unico_usa_o_novo(tmp_path):
+    from sgcor_renov.config import PADRAO, carregar as carregar_de
+    txt = PADRAO.read_text("utf-8")
+    txt = txt.replace('primeira_parcela_porto = "11/01/2027"', 'primeira_parcela = "10/01/2027"')
+    txt = txt.replace('primeira_parcela_tokio = "15/01/2027"', '')
+    assert 'primeira_parcela = "10/01/2027"' in txt
+    (tmp_path / "padrao.toml").write_text(txt, "utf-8")
+    cfg = carregar_de(tmp_path / "padrao.toml")
+    assert (cfg.primeira_parcela_de("PORTO"), cfg.primeira_parcela_de("TOKIO")) == ("11/01/2027", "15/01/2027")
 
 
 # ---- Q71: apólice anterior em outro ramo (ex.: CCA em EMPRESARIAL CAIXA AQUI) ou de outra seguradora

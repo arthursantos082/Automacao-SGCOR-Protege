@@ -276,7 +276,7 @@ def campos_primeira_tela(caso: Caso, cfg: Config, hoje: date | None = None) -> l
         Campo("Prêmio Líquido", "#premioLiquido", formatar_dinheiro(caso.premio_liquido)),
         Campo("Forma de Cobrança", "#cobrancaId", str(caso.cobranca_id), "select"),
         Campo("Parcelas", "#parcelas", str(caso.parcelas)),
-        Campo("1ª Parcela – Vencimento", "#data_texto_dataEntrada", cfg.primeira_parcela),
+        Campo("1ª Parcela – Vencimento", "#data_texto_dataEntrada", cfg.primeira_parcela_de(caso.seguradora)),
         Campo("Emitida", "#data_texto_dataEmitida", hoje.strftime("%d/%m/%Y")),
     ]
 
@@ -462,8 +462,9 @@ def conferir_parcelas(parcelas: list[Parcela], caso: Caso, cfg: Config) -> list[
     erros = []
     if len(parcelas) != caso.parcelas:
         erros.append(f"SGCOR gerou {len(parcelas)} parcela(s); o combinado são {caso.parcelas}")
-    if parcelas and min(parcelas, key=lambda p: p.numero).vencimento != cfg.primeira_parcela:
-        erros.append(f"1º vencimento {min(parcelas, key=lambda p: p.numero).vencimento} ≠ {cfg.primeira_parcela}")
+    venc = cfg.primeira_parcela_de(caso.seguradora)
+    if parcelas and min(parcelas, key=lambda p: p.numero).vencimento != venc:
+        erros.append(f"1º vencimento {min(parcelas, key=lambda p: p.numero).vencimento} ≠ {venc}")
     soma = sum((p.valor for p in parcelas), Decimal(0))
     if caso.premio_total is not None and abs(soma - caso.premio_total) > Decimal("0.10"):
         erros.append(f"Soma das parcelas R$ {soma} ≠ prêmio total R$ {caso.premio_total}")

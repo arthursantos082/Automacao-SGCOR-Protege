@@ -67,6 +67,13 @@ def aplicar_tema(chave: str) -> None:
     QGuiApplication.styleHints().setColorScheme(TEMAS.get(chave, TEMAS["sistema"])[1])
 
 
+def estilo_com_tema(app: QApplication) -> None:
+    """Q89: no Windows 10 o Qt usa o estilo "windowsvista", que ignora o tema (claro/escuro não mudava nada). Lá
+    vai o "Fusion", que troca; no Windows 11 o "windows11" já troca e fica como está."""
+    if app.style().name().lower() == "windowsvista":
+        app.setStyle("Fusion")
+
+
 def abrir_no_windows(caminho: Path) -> None:
     if sys.platform == "win32":
         os.startfile(caminho)  # noqa: S606 — abre pasta/PDF local escolhido pelo próprio consultor
@@ -1156,6 +1163,7 @@ def main() -> int:
     app.setOrganizationName(ORG)
     app.setApplicationName(APP)
     app.setWindowIcon(QIcon(str(RECURSOS / "icone.ico")))
+    estilo_com_tema(app)
     app.setStyleSheet(ESTILO)
     aplicar_tema(str(QSettings().value("tema", "sistema")))
     j = Janela()

@@ -64,7 +64,7 @@ Líquido, Forma de Cobrança, Parcelas, 1ª Parcela – Vencimento e Emitida. To
 | Prêmio Líquido | `#premioLiquido` | PDF |
 | Forma de Cobrança | `#cobrancaId` | boleto=1, cartão de crédito=4, cartão Porto=25 (texto no SGCOR: "CARTÃO DE CRÉDITO PORTO SEGURTO"; selecionar pelo **value** 25, não pelo texto), débito PJ=12, pix=36 (Q28, em config) |
 | Parcelas | `#parcelas` | regra §6.1 |
-| 1ª Parcela vencimento | `#data_texto_dataEntrada` | 10/01/2027 (config) |
+| 1ª Parcela vencimento | `#data_texto_dataEntrada` | Porto 11/01/2027, Tokio 15/01/2027 (config, Q90) |
 | 1ª Parcela valor | `#valorEntrada` | não mexer — SGCOR preenche (Q29) |
 | Emitida | `#data_texto_dataEmitida` | hoje |
 | Corretor, Funcionário/Subscritor, Funcionário Emissor, Fracionamento, 1ª Parcela – Valor, Status, Segurado, Grupos | — | já vêm — **não mexer** |
@@ -140,7 +140,7 @@ URL: `?op=parcelasCompletas&form=listar&propostaId=<N>&cadastro=true`. Tabela po
 | Conferência do robô (só leitura) | Esperado |
 |---|---|
 | Nº de linhas | = parcelas do acordo |
-| Vencimento da parcela 1 | 10/01/2027 (config) |
+| Vencimento da parcela 1 | Porto 11/01/2027, Tokio 15/01/2027 (config, Q90) |
 | Soma Valor Parc. | ≈ Prêmio Total do PDF (tolerância de centavos) |
 | Com. (%) | = comissão do PDF |
 | Repasse para o produtor | = bônus da campanha |

@@ -2,8 +2,9 @@
 # Valores que mudam a cada campanha/ciclo ficam aqui, não no código.
 
 [datas]
-# Vencimento da 1ª parcela (Porto e Tokio)
-primeira_parcela = "10/01/2027"
+# Vencimento da 1ª parcela, por seguradora
+primeira_parcela_porto = "11/01/2027"
+primeira_parcela_tokio = "15/01/2027"
 # Vigência da renovação (Q37); proposta Porto com início diferente → pendência (Q44)
 vigencia_inicio = "31/12/2026"
 vigencia_fim = "31/12/2027"

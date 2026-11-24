@@ -97,8 +97,8 @@ def test_parcelas_com_tabelas_aninhadas_e_conferencia():
     linha = lambda n, v, d: (f'<tr><td><div><table id="tabled_grid"><tr><td>mais</td></tr></table></div></td>'
                              f'<td><span>{n}</span></td><td><span></span></td><td><span>{v}</span></td>'
                              f'<td><span>{d}</span></td><td><span>341,03</span></td></tr>')
-    html = _grid("".join(linha(i, "366,19", f"10/{i:02d}/2027") for i in range(1, 7))
-                 + linha(7, "366,19", "10/07/2027") + "<tr><td></td><td>2.563,33</td></tr>")
+    html = _grid("".join(linha(i, "366,19", f"15/{i:02d}/2027") for i in range(1, 7))
+                 + linha(7, "366,19", "15/07/2027") + "<tr><td></td><td>2.563,33</td></tr>")
     ps = ler_parcelas(html)
     assert [p.numero for p in ps] == [1, 2, 3, 4, 5, 6, 7]
     caso = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", parcelas=7, premio_total=D("2563.33"))
@@ -111,6 +111,12 @@ def test_conferir_parcelas_vencimento_e_soma():
     caso = Caso(seguradora="TOKIO", pasta=Path("."), nome="X", parcelas=2, premio_total=D("100.00"))
     erros = conferir_parcelas([Parcela(1, D("50"), "10/02/2027"), Parcela(2, D("49"), "10/03/2027")], caso, CFG)
     assert any("1º vencimento" in e for e in erros) and any("Soma" in e for e in erros)
+    # Q90: o vencimento conferido é o da seguradora do caso
+    caso.premio_total = D("99")
+    assert conferir_parcelas([Parcela(1, D("50"), "15/01/2027"), Parcela(2, D("49"), "15/02/2027")], caso, CFG) == []
+    caso.seguradora = "PORTO"
+    assert any("≠ 11/01/2027" in e for e in conferir_parcelas([Parcela(1, D("50"), "15/01/2027"),
+                                                                Parcela(2, D("49"), "15/02/2027")], caso, CFG))
 
 
 def test_itens_repasse_e_anexos():

@@ -50,3 +50,23 @@ def test_filtro_pela_metade():
 def test_duracao_no_log():
     from sgcor_renov.ui.trabalhador import duracao
     assert [duracao(x) for x in (0.4, 37.6, 60, 65, 754)] == ["0 s", "38 s", "1 min 00 s", "1 min 05 s", "12 min 34 s"]
+
+
+def test_tema_muda_mesmo_no_estilo_do_windows_10():
+    """Q89: o estilo "windowsvista" (padrão do Qt no Windows 10) ignorava o tema escuro."""
+    from PySide6.QtGui import QGuiApplication, QPalette
+
+    from sgcor_renov.ui.janela import aplicar_tema, estilo_com_tema
+    antes = APP.style().name()
+    try:
+        APP.setStyle("windowsvista")
+        estilo_com_tema(APP)
+        assert APP.style().name().lower() == "fusion"
+        aplicar_tema("escuro")
+        escuro = APP.palette().color(QPalette.Window).lightness()
+        aplicar_tema("claro")
+        claro = APP.palette().color(QPalette.Window).lightness()
+        assert escuro < 80 < claro
+    finally:
+        QGuiApplication.styleHints().unsetColorScheme()
+        APP.setStyle(antes)
