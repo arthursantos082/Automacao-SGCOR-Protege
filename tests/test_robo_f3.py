@@ -129,3 +129,36 @@ def test_itens_repasse_e_anexos():
     anexos = _grid('<tr><td><a href="popup.php?op=anexos&amp;form=alterar&amp;anexoId=1"></a></td><td></td>'
                    '<td>ACORDO</td><td>acordo.pdf</td></tr>')
     assert anexos_existentes(anexos) == {"ACORDO"}
+
+
+def test_navegacao_atropelada_vai_de_novo(tmp_path):
+    """Q95 (caso real CORACAO DE MINAS): 'net::ERR_ABORTED; maybe frame was detached?' deixava a lotérica pela
+    metade; agora espera a outra navegação e vai de novo. Outros erros continuam subindo na hora."""
+    import pytest
+    from sgcor_renov.robo.navegador import Robo
+
+    class Pagina:
+        def __init__(self, erros):
+            self.erros, self.idas = list(erros), 0
+
+        def goto(self, url, wait_until):
+            self.idas += 1
+            if self.erros:
+                raise Exception(self.erros.pop(0))
+
+        def wait_for_load_state(self, *a, **k):
+            pass
+
+    r = Robo(CFG, tmp_path, tmp_path)
+    r.page = Pagina(["Page.goto: net::ERR_ABORTED; maybe frame was detached?",
+                     'Navigation to "x" is interrupted by another navigation to "y"'])
+    r._goto("https://sgcor/anexos")
+    assert r.page.idas == 3
+    r.page = Pagina(["net::ERR_CONNECTION_TIMED_OUT at https://sgcor"])
+    with pytest.raises(Exception, match="TIMED_OUT"):
+        r._goto("https://sgcor/anexos")
+    assert r.page.idas == 1
+    r.page = Pagina(["net::ERR_ABORTED"] * 3)
+    with pytest.raises(Exception, match="ERR_ABORTED"):
+        r._goto("https://sgcor/anexos")
+    assert r.page.idas == 3

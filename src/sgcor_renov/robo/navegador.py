@@ -58,6 +58,9 @@ def _slug(texto: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", texto).strip("_")[:50]
 
 
+_ATROPELADA = ("ERR_ABORTED", "frame was detached", "interrupted by another navigation")
+
+
 class Robo:
     def __init__(self, cfg: Config, perfil: Path, prints: Path):
         self.cfg = cfg
@@ -152,7 +155,7 @@ class Robo:
         """Vai para a URL. Popups (popup.php) não têm o menu com 'Sair': nelas, sessão expirada = tela de senha.
         esperar=False: não espera a rede ficar parada (≥ 0,5 s) — quem chama espera o elemento de que precisa."""
         self.abrir()
-        self.page.goto(url, wait_until="load")
+        self._goto(url)
         if popup:
             if self.page.locator("input[type='password']").count():
                 raise SessaoExpirada()
@@ -160,6 +163,24 @@ class Robo:
             raise SessaoExpirada()
         if esperar:
             self.esperar_tela()
+
+    def _goto(self, url: str, tentativas: int = 3) -> None:
+        """Q95: se outra navegação atropela a nossa (uma página do SGCOR que ainda estava terminando, alguém clicando
+        na janela do robô), o Chrome aborta a nossa ("net::ERR_ABORTED; maybe frame was detached?", "is interrupted by
+        another navigation") e a lotérica ficava pela metade. Espera a outra assentar e vai de novo."""
+        for i in range(tentativas):
+            try:
+                self.page.goto(url, wait_until="load")
+                return
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+                if i == tentativas - 1 or not any(k in msg for k in _ATROPELADA):
+                    raise
+                log.info("Navegação interrompida por outra (%s) — indo de novo.", msg.splitlines()[0][:120])
+                try:
+                    self.page.wait_for_load_state("load", timeout=15000)
+                except Exception:  # noqa: BLE001
+                    pass
 
     def ir_lista(self, url: str, popup: bool = False) -> None:
         """Q86: lista do SGCOR (Itens, Coberturas do item, Repasses). A tabela já vem pronta no HTML (o AJAX
@@ -270,6 +291,9 @@ class Robo:
                             f"é da {caso.seguradora}: o robô ainda não troca a seguradora na 1ª tela — cadastrar à mão")
         log.info("%s: apólice anterior no SGCOR = ID %s (apólice %s, %s a %s)", caso.nome, linha.proposta_id,
                  linha.apolice, linha.inicio, linha.fim)
+        if linha.nivel == "Revisão":     # Q97
+            log.info("%s: é um endosso em Revisão — única opção de renovação e com o nº de apólice da proposta.",
+                     caso.nome)
         return linha
 
     def _buscar_so_cnpj(self, caso: Caso) -> list[LinhaApolice]:

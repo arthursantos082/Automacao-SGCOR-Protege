@@ -143,7 +143,9 @@ def ler_lista(html: str) -> list[LinhaApolice]:
         nome = re.search(r"Nome:\s*(.*?)\s*CPF/CNPJ", cliente_t)
         apolice_t = _titulo_com(tds, "Pesquisar pela apólice")
         ap = re.search(r"Apólice:\s*(\S+)", apolice_t)
-        ramo = re.search(r"Ramo:\s*(.*?)\s*Endereço", _titulo_com(tds, "Ramo:") + " Endereço")
+        # Q96: o ramo vai até "Endereço:" ou até a quebra de linha (há tooltips sem "Endereço:", com o endereço
+        # misturado: "Ramo: EMPRESARIAL CAIXA AQUI, 1 - LOCAL …\nBairro: …" — antes o ramo saía vazio)
+        ramo = re.search(r"Ramo:[ \t]*([^\n]*?)\s*(?:Endereço|\n|$)", _titulo_com(tds, "Ramo:"))
         cia = next((t.strip() for td in tds for t in td["titulos"]
                     if re.search(r"PORTO|TOKIO|SEGURADORA|SEGUROS", t, re.I) and ":" not in t), "")
         tipo_t = next((t for td in tds for t in td["titulos"] if re.match(r"(Renovação|Nova|Endosso)\b", t.strip())), "")
@@ -201,12 +203,24 @@ def escolher_apolice(linhas: list[LinhaApolice], caso: Caso, cfg: Config,
     # Q54: só vale o registro em Produção (bolinha verde); Revisão (bolinha amarela) é desconsiderado
     producao = [l for l in cand if l.nivel == "Produção"]
     if not producao:
-        return None, "Nenhuma apólice em Nível Produção para o CNPJ (só em Revisão) — conferir no SGCOR"
+        # Q97: exceção — o endosso em Revisão é a ÚLTIMA opção de renovação (as outras ficam cinza, sem o botão
+        # Renovar, e nem entram em `linhas`) e é a apólice que a proposta diz renovar → renova ele
+        num = caso.proposta.apolice_anterior if caso.proposta else None
+        if not (len(cand) == 1 and cand[0].tipo == "Endosso" and num and num != cfg.apolice_provisoria
+                and cand[0].apolice == num):
+            return None, "Nenhuma apólice em Nível Produção para o CNPJ (só em Revisão) — conferir no SGCOR"
+        producao = cand
     cand = producao
     cand.sort(key=lambda l: _data(l.fim), reverse=True)
     topo = cand[0]
     if len(cand) > 1 and cand[1].fim == topo.fim:
-        return None, f"Mais de uma apólice com a mesma vigência final ({topo.fim}) — conferir no SGCOR"
+        # Q94: desempata pelo nº que a proposta diz renovar, se só uma das empatadas o tem (o provisório não vale)
+        empatadas = [l for l in cand if l.fim == topo.fim]
+        num = caso.proposta.apolice_anterior if caso.proposta else None
+        com_num = [l for l in empatadas if num and num != cfg.apolice_provisoria and l.apolice == num]
+        if len(com_num) != 1:
+            return None, f"Mais de uma apólice com a mesma vigência final ({topo.fim}) — conferir no SGCOR"
+        topo = com_num[0]
     inicio_nova = vigencia_do_caso(caso, cfg)[0]          # Q83: pode ter sido alterada pelo consultor
     if topo.inicio == inicio_nova or topo.status == "Renovada":
         return None, (f"A renovação parece já cadastrada no SGCOR (ID {topo.proposta_id}, vigência "

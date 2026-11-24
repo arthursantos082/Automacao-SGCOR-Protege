@@ -244,3 +244,70 @@ def test_vigencia_alterada_vai_para_a_primeira_tela_e_para_a_busca():
     assert linha is None and "não em 05/12/2026" in motivo
     # sem alteração continua a da configuração
     assert escolher_apolice([_l("8", "31/12/2026")], _caso(), CFG)[1] is None
+
+
+def test_empate_na_vigencia_desempata_pelo_numero_da_apolice_da_proposta():
+    """Q94 (caso real JOSE GONCALVES DANTAS): duas apólices em Produção terminando em 31/12/2026; a proposta diz
+    "renova a apólice 2696649" e só uma delas tem esse número → é ela."""
+    from dataclasses import replace
+    caso = _caso()
+    caso.proposta.apolice_anterior = "2696649"
+    a = replace(_l("65712", "31/12/2026", ini="26/06/2026"), apolice="2696649", tipo="Nova")
+    b = replace(_l("63305", "31/12/2026"), apolice="2688645", status="?")
+    linha, motivo = escolher_apolice([b, a], caso, CFG)
+    assert motivo is None and linha.proposta_id == "65712"
+    # nenhuma (ou as duas) com o número da proposta → continua pendência, como antes
+    caso.proposta.apolice_anterior = "9999999"
+    assert escolher_apolice([b, a], caso, CFG)[1].startswith("Mais de uma")
+    caso.proposta.apolice_anterior = "2696649"
+    assert escolher_apolice([replace(b, apolice="2696649"), a], caso, CFG)[1].startswith("Mais de uma")
+    # nº provisório (123456) não desempata: muitas têm
+    caso.proposta.apolice_anterior = "123456"
+    assert escolher_apolice([replace(b, apolice="123456"), a], caso, CFG)[1].startswith("Mais de uma")
+
+
+def test_ramo_sem_endereco_no_tooltip_e_lido_e_o_endosso_cca_e_renovado():
+    """Q96 (caso real L M CARNAUBA, CCA Porto): o tooltip vinha "Ramo: EMPRESARIAL CAIXA AQUI, 1 - LOCAL …\nBairro:
+    …" (sem "Endereço:"); o ramo saía vazio, a linha era descartada e virava "Nenhuma apólice … em nenhuma
+    seguradora". A renovável é o endosso (a original fica "endossada", sem o botão Renovar)."""
+    linha = _linha_html("65869", "4069103", "15.328.700/0001-87", "X", "PORTO SEGURO CIA. DE SEGUROS GERAIS",
+                        "31/12/2025", "31/12/2026", tipo="Endosso")
+    linha = linha.replace('title="Ramo: X Endereço: RUA X"',
+                          'title="Ramo: EMPRESARIAL CAIXA AQUI, 1 - LOCAL ESCRITORIOS DEMAIS-TER\nBairro: CENTRO\n'
+                          'Cidade: ADOS"')
+    [l] = ler_lista(_pagina(linha))
+    assert l.ramo.startswith("EMPRESARIAL CAIXA AQUI") and "Bairro" not in l.ramo
+    caso = _caso("PORTO", cnpj="15328700000187")
+    caso.proposta.produto = "caixa_aqui"
+    escolhida, motivo = escolher_apolice([l], caso, CFG, outros_ramos=True)
+    assert motivo is None and escolhida.proposta_id == "65869"
+    # o formato de sempre continua igual
+    [n] = ler_lista(_pagina(_linha_html("1", "2", "11.222.333/0001-81", "EMPRESARIAL LOTÉRICO", "TOKIO MARINE",
+                                        "31/12/2025", "31/12/2026")))
+    assert n.ramo == "EMPRESARIAL LOTÉRICO"
+
+
+def test_endosso_em_revisao_e_renovado_quando_e_a_ultima_opcao():
+    """Q97 (caso real ESTRELA DA SORTE): só o endosso em Revisão tem o botão Renovar (os outros ficam cinza e nem
+    entram na lista lida) e é a apólice que a proposta diz renovar → renova ele. Fora disso, Revisão continua
+    desconsiderada (Q54)."""
+    from dataclasses import replace
+    caso = _caso()
+    caso.proposta.apolice_anterior = "2693657"
+    endosso = replace(_l("64310", "31/12/2026", ini="17/01/2026", nivel="Revisão"), apolice="2693657", tipo="Endosso")
+    linha, motivo = escolher_apolice([endosso], caso, CFG)
+    assert motivo is None and linha.proposta_id == "64310"
+    so_revisao = "Nenhuma apólice em Nível Produção"
+    # nº diferente do da proposta, ou não é endosso → continua pendência
+    assert escolher_apolice([replace(endosso, apolice="1")], caso, CFG)[1].startswith(so_revisao)
+    assert escolher_apolice([replace(endosso, tipo="Renovação")], caso, CFG)[1].startswith(so_revisao)
+    # não é a última opção (há outra renovável em Revisão) → pendência
+    outra = replace(endosso, proposta_id="64311", apolice="2693658")
+    assert escolher_apolice([endosso, outra], caso, CFG)[1].startswith(so_revisao)
+    # nº provisório não serve para identificar
+    caso.proposta.apolice_anterior = "123456"
+    assert escolher_apolice([replace(endosso, apolice="123456")], caso, CFG)[1].startswith(so_revisao)
+    # com uma em Produção, a regra de sempre (a de Produção)
+    caso.proposta.apolice_anterior = "2693657"
+    producao = replace(_l("1", "31/12/2026"), apolice="999")
+    assert escolher_apolice([endosso, producao], caso, CFG)[0].proposta_id == "1"
