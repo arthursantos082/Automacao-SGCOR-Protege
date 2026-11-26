@@ -162,3 +162,38 @@ def test_navegacao_atropelada_vai_de_novo(tmp_path):
     with pytest.raises(Exception, match="ERR_ABORTED"):
         r._goto("https://sgcor/anexos")
     assert r.page.idas == 3
+
+
+def test_driver_do_chrome_que_cai_tenta_de_novo_e_explica(tmp_path, monkeypatch):
+    """Q99 (caso real, máquina de operador): 'Connection closed while reading from the driver' ao abrir o Chrome —
+    tenta mais uma vez; se cair de novo, a mensagem diz o que fazer. Outros erros sobem na hora, como antes."""
+    import pytest
+    from sgcor_renov.robo import navegador
+
+    monkeypatch.setattr(navegador.time, "sleep", lambda s: None)
+    erros = []
+
+    class Playwright:
+        def start(self):
+            raise Exception(erros.pop(0))
+
+    def falhar_com(*lista):
+        erros[:] = list(lista)
+
+    monkeypatch.setattr(navegador, "sync_playwright", lambda: Playwright())
+    caiu = "Connection closed while reading from the driver"
+    r = navegador.Robo(CFG, tmp_path / "perfil", tmp_path)
+
+    falhar_com(caiu, caiu)
+    with pytest.raises(navegador.FalhaRobo, match="Histórico de proteção"):
+        r.abrir()
+    assert erros == []                       # tentou 2 vezes
+
+    falhar_com(caiu, "outro erro")           # a 2ª tentativa passa do driver e cai em outra coisa: mostra essa
+    with pytest.raises(navegador.FalhaRobo, match="outro erro"):
+        r.abrir()
+
+    falhar_com("Executable doesn't exist", caiu)
+    with pytest.raises(navegador.FalhaRobo, match="Executable doesn't exist"):
+        r.abrir()
+    assert erros == [caiu]                   # não tentou de novo

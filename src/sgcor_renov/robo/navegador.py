@@ -60,6 +60,13 @@ def _slug(texto: str) -> str:
 
 _ATROPELADA = ("ERR_ABORTED", "frame was detached", "interrupted by another navigation")
 
+# Q99: o componente que controla o Chrome (node.exe em _internal\playwright\driver) fechou ao iniciar — em geral o
+# antivírus bloqueou, ou o arquivo sumiu numa atualização; às vezes é passageiro
+_DRIVER_CAIU = "Connection closed while reading from the driver"
+AJUDA_DRIVER = ("o componente que controla o Chrome (node.exe, na pasta _internal\\playwright\\driver do AutoCOR) "
+                "fechou ao iniciar. Feche e abra o AutoCOR; se continuar, veja em Segurança do Windows → Histórico "
+                "de proteção se o antivírus bloqueou o node.exe (a TI libera a pasta do AutoCOR) ou reinstale o AutoCOR")
+
 
 class Robo:
     def __init__(self, cfg: Config, perfil: Path, prints: Path):
@@ -72,11 +79,23 @@ class Robo:
 
     # ------------------------------------------------------------ ciclo de vida
 
-    def abrir(self) -> None:
+    def abrir(self, tentativas: int = 2) -> None:
         if self.page and not self.page.is_closed():
             return
         if self.page is not None:          # o consultor fechou a janela do robô: começa do zero
             self.fechar()
+        for i in range(tentativas):
+            try:
+                return self._abrir()
+            except FalhaRobo as e:
+                if _DRIVER_CAIU not in str(e.__cause__):
+                    raise
+                if i == tentativas - 1:
+                    raise FalhaRobo(f"Não consegui abrir o navegador do robô: {AJUDA_DRIVER}") from e.__cause__
+                log.warning("O componente do Chrome fechou ao iniciar; tentando de novo")
+                time.sleep(2)
+
+    def _abrir(self) -> None:
         try:
             if self._pw is None:
                 self._pw = sync_playwright().start()
