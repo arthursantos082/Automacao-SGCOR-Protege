@@ -87,6 +87,20 @@ def test_porto_proposta_de_seguro_numero_cnpj_e_forma_contratada():
     assert (o.premio_total, o.iof, o.premio_liquido) == (D("1073.78"), D("73.80"), D("999.98"))
 
 
+def test_porto_proposta_de_seguro_forma_quebrada_entre_paginas():
+    # caso real (Q98): "41 - 6 x BOLETO BANCARIO" no fim de uma página e "VALOR DAS PARCELAS" no começo da outra,
+    # com o rodapé da página no meio
+    t = _proposta_de_seguro_porto().replace(
+        "BOLETO BANCARIO\nVALOR DAS PARCELAS",
+        "BOLETO BANCARIO\nF3ZHEJ - PROTEGE ASSESSORIA E CONSULTORIA EMPRESA - CO20 - PORTO PRINT WEB EMPRESA "
+        "PÁGINA 9 de 11\nVALOR DAS PARCELAS")
+    assert "PÁGINA 9 de 11\nVALOR" in t
+    p = ler_porto(t)
+    assert p.problemas == []
+    [o] = p.opcoes
+    assert (o.forma, o.parcelas, o.premio_total) == ("boleto", 6, D("1073.78"))
+
+
 def test_porto_orcamento_continua_lendo_a_tabela():
     p = ler_porto(PORTO)
     assert p.numero == "118600001" and len(p.opcoes) == 4 and not any(o.marcada for o in p.opcoes)

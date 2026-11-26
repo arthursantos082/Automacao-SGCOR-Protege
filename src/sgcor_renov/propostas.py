@@ -205,8 +205,9 @@ def ler_porto(texto: str) -> Proposta:
 # Q77: a "Proposta de Seguro" da Porto não tem a tabela de opções do Orçamento, só a forma contratada:
 #   FORMA DE PAGAMENTO / 41 - 6 x BOLETO BANCARIO / VALOR DAS PARCELAS /
 #   1º PARCELA DEMAIS PARCELAS(R$) JUROS I.O.F. ENCARGOS / R$ 658,74 R$ 658,75 R$ 0,00 R$ 271,65 R$ 0,00
+# Q98: a tabela pode quebrar de página entre a forma e "VALOR DAS PARCELAS" (rodapé "… PÁGINA 9 de 11" no meio).
 _FORMA_CONTRATADA_PORTO = re.compile(
-    r"FORMA DE PAGAMENTO\s*\n\s*(?:\d+\s*-\s*)?(\d{1,2})\s*x\s*(.+?)\s*\n\s*VALOR DAS PARCELAS\s*\n.*\n\s*"
+    r"FORMA DE PAGAMENTO\s*\n\s*(?:\d+\s*-\s*)?(\d{1,2})\s*x\s*(.+?)\s*\n(?:.*\n){0,3}?\s*VALOR DAS PARCELAS\s*\n.*\n\s*"
     + r"\s+".join([rf"R\$\s*({DINHEIRO})"] * 5))
 
 

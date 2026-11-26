@@ -122,7 +122,7 @@ gh release create v1.0.1 dist\AutoCOR.zip --title "AutoCOR 1.0.1" --notes "O que
 | `src/sgcor_renov/ui/` | janela (PySide6), tutorial, cadastradas, leitor em paralelo e a thread do robô |
 | `config/` | configuração editável |
 | `docs/f0-mapa-sgcor.md` | mapa das telas e seletores do SGCOR |
-| `plan.md` | plano e registro de decisões (Q1…Q97) |
+| `plan.md` | plano e registro de decisões (Q1…Q98) |
 | `empacotar/` | ponto de entrada e script do PyInstaller |
 
 ### Regras de segurança
